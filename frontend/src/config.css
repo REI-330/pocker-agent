@@ -1,1 +1,13 @@
-.top-actions{display:flex;align-items:center;gap:18px}.config-link{border:0;background:transparent;color:#1f7a5a;font-size:12px;cursor:pointer}.config-panel{margin:22px 0 0;padding:22px 26px;border:1px solid #dfe0e3;border-radius:20px;background:#fff;display:flex;justify-content:space-between;align-items:end;gap:24px}.config-panel h2{font-size:18px;margin:8px 0}.config-panel p{color:#6e6e73;font-size:12px;margin:0 0 10px}.connection-state{font-size:12px;color:#1f7a5a}.config-fields{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:720px}.config-fields input,.config-fields select{height:36px;border:1px solid #d3d3d7;border-radius:999px;padding:0 13px;min-width:160px;outline:none;background:#fff}.config-fields input:focus,.config-fields select:focus{border-color:#1f7a5a}.config-buttons{display:flex;gap:8px;flex-wrap:wrap}.config-fields .secondary{height:36px;border:1px solid #d3d3d7;border-radius:999px;background:#fff;color:#1d1d1f;padding:0 13px;cursor:pointer}.config-fields .secondary:disabled{opacity:.4;cursor:not-allowed}.config-fields .primary{border-radius:999px}@media(max-width:760px){.config-panel{align-items:stretch;flex-direction:column}.config-fields{justify-content:stretch;max-width:none}.config-fields input,.config-fields select,.config-fields .primary,.config-fields .secondary{width:100%}.config-buttons{width:100%;flex-direction:column}.top-actions{gap:10px;align-items:flex-end;flex-direction:column}}
+.top-actions{display:flex;align-items:center;gap:18px}
+.config-link{border:0;background:transparent;color:#1f7a5a;font-size:12px;cursor:pointer}
+.config-panel{margin:24px 0 0;padding:28px;border:1px solid #dfe0e3;border-radius:20px;background:#fff;display:grid;grid-template-columns:minmax(180px,1fr) minmax(250px,1.4fr);gap:36px}
+.config-panel h2{font-size:22px;margin:10px 0 14px}.config-panel p{color:#63706b;font-size:13px;line-height:1.7}
+.config-intro strong{display:block;font-size:13px;color:#256647;margin-top:22px;overflow-wrap:anywhere}
+.config-form fieldset{border:0;padding:0;margin:0;display:flex;gap:14px;flex-direction:column;min-width:0}
+.config-form label{display:flex;flex-direction:column;gap:7px;font-size:12px;color:#526158}
+.config-form input,.config-form select{width:100%;height:42px;border:1px solid #ced6d0;border-radius:10px;padding:0 12px;background:#fff;color:#242b28;font:inherit}
+.config-form :focus-visible{outline:2px solid #327555;outline-offset:2px}
+.config-buttons{display:flex;gap:12px;flex-wrap:wrap}.config-feedback{color:#226245;font-size:13px;padding-top:15px;line-height:1.7;min-height:35px}
+.inline-error{color:#a43b3b!important;background:#fff0ed;padding:12px;border-radius:9px;overflow-wrap:anywhere}
+.draft-note{color:#8c5a1f!important}
+@media(max-width:760px){.config-panel{grid-template-columns:1fr;gap:22px;padding:22px}.top-actions{gap:10px;align-items:flex-end;flex-direction:column}}

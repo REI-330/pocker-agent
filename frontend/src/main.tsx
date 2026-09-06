@@ -1,167 +1,140 @@
-import React, { useState } from 'react'
-import { createRoot } from 'react-dom/client'
-import { Check, CircleAlert, Play, Send, Sparkles } from 'lucide-react'
+import React, {useCallback, useEffect, useState} from 'react'
+import {createRoot} from 'react-dom/client'
+import {API, request, downloadGame, messageOf, type Message, type Rule, type Runtime, type GameEvent, type ModelConfig} from './api'
+import {ModelSettings} from './components/ModelSettings'
+import {GameTable} from './components/GameTable'
 import './styles.css'
 import './runtime.css'
 import './config.css'
 
-type Turn = { role: 'user' | 'assistant'; content: string }
-type Rule = Record<string, unknown>
-
-const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
-
+type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null}
+const EMPTY: Workbench = {turns:[],messages:[],proposal:null,confirmed:false,events:[],runtimeId:null}
+const STORAGE_KEY = 'pocker-workbench-v2'
+function restore(): {work: Workbench; error: string} {
+  try {
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
+    if (!data) return {work:EMPTY,error:''}
+    if (!Array.isArray(data.turns) || !Array.isArray(data.messages) || !Array.isArray(data.events)) throw new Error()
+    return {work:{...EMPTY,...data},error:''}
+  } catch { return {work:EMPTY,error:'本机草稿无法读取，已打开空白工作台'} }
+}
 function App() {
-  const [input, setInput] = useState('我想做一个两人比大小游戏，每人一张牌，翻开后点数高的人获胜。')
-  const [turns, setTurns] = useState<Turn[]>([])
-  const [proposal, setProposal] = useState<Rule | null>(null)
-  const [confirmed, setConfirmed] = useState(false)
-  const [status, setStatus] = useState('等待描述玩法')
-  const [events, setEvents] = useState<Record<string, unknown>[]>([])
-  const [runtime, setRuntime] = useState<{session_id: string; current_player: string; legal_actions: string[]; players: {id: string; hand: {rank: string; suit: string}[]}[]; table: {rank: string; suit: string}[]; finished: boolean} | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [showConfig, setShowConfig] = useState(false)
-  const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1')
-  const [model, setModel] = useState('gpt-4o-mini')
-  const [models, setModels] = useState<string[]>([])
-  const [connectionState, setConnectionState] = useState('未连接')
+  const [initial] = useState(restore)
+  const [work, setWork] = useState(initial.work)
+  const [input,setInput] = useState(initial.work.turns.length ? '' : '我想做一个两人比大小游戏，每人一张牌，翻开后点数高的人获胜。')
+  const [runtime,setRuntime] = useState<Runtime | null>(null)
+  const [busy,setBusy] = useState(initial.work.runtimeId ? '恢复牌局' : '')
+  const [error,setError] = useState(initial.error)
+  const [status,setStatus] = useState('描述玩法，开始设计')
+  const [showConfig,setShowConfig] = useState(true)
+  const [modelConfig,setModelConfig] = useState<ModelConfig | null>(null)
+  const [configBlocked,setConfigBlocked] = useState(true)
+  const onSaved = useCallback((data: ModelConfig) => setModelConfig(data), [])
 
-  React.useEffect(() => {
-    fetch(`${API}/api/agent/config`).then(response => response.json()).then(data => {
-      if (data.configured) { setBaseUrl(data.base_url || ''); setModel(data.model || ''); setConnectionState('已配置') }
-    }).catch(() => undefined)
-  }, [])
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(work)) }
+    catch { setError('浏览器无法保存草稿；请允许此站点使用本机存储') }
+  }, [work])
+  useEffect(() => {
+    if (!initial.work.runtimeId) return
+    let active = true
+    request<Runtime>('/api/runtime/sessions/' + initial.work.runtimeId)
+      .then(data => { if (active) {setRuntime(data);setStatus('已恢复上次牌局')} })
+      .catch(err => { if (active) setError(messageOf(err)) })
+      .finally(() => { if (active) setBusy('') })
+    return () => {active = false}
+  }, [initial])
 
-  async function askAgent() {
-    if (!input.trim() || busy) return
-    setBusy(true); setError('')
-    const next = [...turns, { role: 'user' as const, content: input.trim() }]
-    try {
-      const response = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message: input.trim(), messages: turns.map(turn => ({ role: turn.role, content: turn.content })), proposal }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || 'Agent 请求失败')
-      setTurns([...next, { role: 'assistant', content: data.message }])
-      if (data.rules) setProposal(data.rules)
-      if (data.rules) setConfirmed(false)
-      setStatus(data.kind === 'proposal' ? '规则待确认' : data.kind === 'question' ? '等待补充信息' : '需要修正规则')
-      if (data.errors?.length) setError(data.errors.join('\n'))
-      setInput('')
-    } catch (err) { setError(err instanceof Error ? err.message : '请求失败') }
-    finally { setBusy(false) }
+  async function operation(label: string, task: () => Promise<void>) {
+    if (busy) return
+    setBusy(label);setError('')
+    try { await task() } catch (err) {setError(messageOf(err))}
+    finally {setBusy('')}
   }
-
-  async function configureModel() {
-    if (!apiKey.trim() || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/agent/config`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_key: apiKey, base_url: baseUrl, model }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || '配置失败')
-      setConnectionState('已连接'); setApiKey(''); setStatus(`模型已配置 · ${data.model}`)
-    } catch (err) { setError(err instanceof Error ? err.message : '配置失败') }
-    finally { setBusy(false) }
+  function ask() {
+    if (!input.trim() || !modelConfig?.configured || configBlocked) return
+    void operation('生成规则', async () => {
+      const content = input.trim()
+      const data = await request<{kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[]}>('/api/agent/turn', {
+        message: content, messages: work.messages, proposal: work.proposal,
+      })
+      if (data.kind === 'error') throw new Error([data.message,...data.errors].join('\n'))
+      // Any rule conversation invalidates previous confirmation and derived game state.
+      setWork({...work,turns:[...work.turns,{role:'user',content},{role:'assistant',content:data.message}],
+        messages:data.messages, proposal:data.rules, confirmed:false,events:[],runtimeId:null})
+      setRuntime(null);setInput('')
+      setStatus(data.kind === 'question' ? '等待补充规则' : '规则已生成，请确认')
+    })
   }
-
-  async function loadModels() {
-    if ((!apiKey.trim() && connectionState === '未连接') || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/agent/models`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || '模型列表获取失败')
-      setModels(data.models || []); setConnectionState(`已发现 ${data.models?.length || 0} 个模型`)
-    } catch (err) { setConnectionState('连接失败'); setError(err instanceof Error ? err.message : '模型列表获取失败') }
-    finally { setBusy(false) }
+  function confirmRules() {
+    if (!work.proposal) return
+    void operation('确认规则', async () => {
+      const data = await request<{kind:string;rules:Rule;errors:string[]}>('/api/agent/confirm',{proposal:work.proposal})
+      if (data.kind !== 'confirmed') throw new Error(data.errors.join('\n'))
+      setWork({...work,proposal:data.rules,confirmed:true});setStatus('规则已确认')
+    })
   }
-
-  async function testConnection() {
-    if ((!apiKey.trim() && connectionState === '未连接') || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/agent/test-connection`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_key: apiKey, base_url: baseUrl, model }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || '连接测试失败')
-      setConnectionState(`连接正常 · ${data.model}`)
-    } catch (err) { setConnectionState('连接失败'); setError(err instanceof Error ? err.message : '连接测试失败') }
-    finally { setBusy(false) }
+  function simulate() {
+    if (!work.confirmed || !work.proposal) return
+    void operation('运行模拟', async () => {
+      const data = await request<{completed:boolean;events:GameEvent[]}>('/api/simulations?seed=7',work.proposal)
+      if (!data.completed) throw new Error('模拟尚未完成')
+      setWork({...work,events:data.events});setStatus('模拟完成，所有回合已执行')
+    })
   }
-
-  async function simulate() {
-    if (!proposal || !confirmed || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/simulations?seed=7`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(proposal) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || '模拟失败')
-      setEvents(data.events || []); setStatus(`模拟完成 · ${data.winner || '无胜者'}`)
-    } catch (err) { setError(err instanceof Error ? err.message : '模拟失败') }
-    finally { setBusy(false) }
+  function start() {
+    if (!work.confirmed || !work.proposal) return
+    void operation('开始试玩', async () => {
+      const data = await request<Runtime>('/api/runtime/sessions', work.proposal)
+      setRuntime(data);setWork({...work,runtimeId:data.session_id});setStatus(data.finished ? '本局已结束' : '轮到你出牌')
+    })
   }
-
-  async function startRuntime() {
-    if (!proposal || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/runtime/sessions?seed=7`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(proposal) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || '试玩启动失败')
-      setRuntime(data); setStatus('试玩中 · 轮到 ' + data.current_player)
-    } catch (err) { setError(err instanceof Error ? err.message : '试玩启动失败') }
-    finally { setBusy(false) }
+  function act(action: string, cardIndex: number) {
+    if (!runtime || !work.confirmed) return
+    void operation('执行回合', async () => {
+      const data = await request<{state:Runtime}>('/api/runtime/sessions/' + runtime.session_id + '/actions/' + action,{
+        revision:runtime.revision,card_index:cardIndex,
+      })
+      setRuntime(data.state);setStatus(data.state.finished ? '本局结束，可以再来一局' : '电脑已行动，轮到你')
+    })
   }
-
-  async function playAction(action: string) {
-    if (!runtime || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/runtime/sessions/${runtime.session_id}/actions/${encodeURIComponent(action)}`, { method: 'POST' })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || '动作执行失败')
-      setRuntime(data.state); setStatus(data.state.finished ? '试玩完成' : '试玩中 · 轮到 ' + data.state.current_player)
-    } catch (err) { setError(err instanceof Error ? err.message : '动作执行失败') }
-    finally { setBusy(false) }
+  function refresh() {
+    const id = runtime?.session_id || work.runtimeId
+    if (!id) return
+    void operation('刷新牌局', async () => {setRuntime(await request<Runtime>('/api/runtime/sessions/' + id));setStatus('牌局已刷新')})
   }
-
-  async function exportGame() {
-    if (!proposal || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/games/export`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(proposal) })
-      if (!response.ok) throw new Error('导出失败')
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url; link.download = `${String(proposal.game_id || 'pocker-game')}.pocker-game.zip`; link.click()
-      URL.revokeObjectURL(url); setStatus('游戏包已导出')
-    } catch (err) { setError(err instanceof Error ? err.message : '导出失败') }
-    finally { setBusy(false) }
-  }
-
-  async function confirmRules() {
-    if (!proposal || busy) return
-    setBusy(true); setError('')
-    try {
-      const response = await fetch(`${API}/api/agent/confirm`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ proposal, messages: turns.map(turn => ({ role: turn.role, content: turn.content })) }) })
-      const data = await response.json()
-      if (!response.ok || data.kind !== 'confirmed') throw new Error(data.errors?.join('\n') || data.detail || '规则确认失败')
-      setConfirmed(true); setStatus('规则已确认 · 可以模拟')
-    } catch (err) { setError(err instanceof Error ? err.message : '规则确认失败') }
-    finally { setBusy(false) }
-  }
-
   return <main className="shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">♠</span><div><strong>Pocker Agent</strong><small>规则设计工作台</small></div></div><div className="top-actions"><span className="status"><span className="dot" />{status}</span><button className="config-link" onClick={() => setShowConfig(!showConfig)}>模型设置</button></div></header>
-    {showConfig && <section className="config-panel"><div><span className="kicker">MODEL CONFIGURATION</span><h2>连接你的模型</h2><p>填写兼容 Chat Completions 的 Base URL、API Key 和模型名。Key 仅发送到当前本机 API 服务。</p><strong className="connection-state">{connectionState}</strong></div><div className="config-fields"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="API Key（已配置可留空）" autoComplete="off" /><input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="Base URL，例如 https://host/v1" /><input list="model-options" value={model} onChange={event => setModel(event.target.value)} placeholder="Model 名称" /><datalist id="model-options">{models.map(item => <option key={item} value={item} />)}</datalist><div className="config-buttons"><button className="secondary" onClick={loadModels} disabled={(!apiKey.trim() && connectionState === '未连接') || busy}>获取模型列表</button><button className="secondary" onClick={testConnection} disabled={(!apiKey.trim() && connectionState === '未连接') || busy}>测试连接</button><button className="primary" onClick={configureModel} disabled={!apiKey.trim() || !baseUrl.trim() || !model.trim() || busy}>保存配置</button></div></div></section>}
-    <section className="hero"><p className="eyebrow">GAME DESIGN LOOP</p><h1>把一句玩法想法，变成一局可玩的牌局。</h1><p className="lede">描述规则，和 Agent 一起补全细节。确认后运行模拟，检查每一步牌局状态。</p></section>
+    <header className="topbar"><div className="brand"><span className="brand-mark">♠</span><div><strong>Pocker Agent</strong><small>把规则变成牌局</small></div></div>
+      <div className="top-actions"><span className="status" role="status">{busy ? '正在' + busy + '…' : status}</span>
+      <button className="config-link" onClick={() => setShowConfig(!showConfig)}>{showConfig ? '收起模型设置' : '模型设置'}</button></div>
+    </header>
+    <div hidden={!showConfig}><ModelSettings onSaved={onSaved} onBlockedChange={setConfigBlocked} disabled={!!busy} /></div>
+    {error && <div className="error" role="alert"><pre>{error}</pre></div>}
+    <section className="hero"><p className="eyebrow">FROM IDEA TO PLAY</p><h1>写下规则。<br/>开始一局。</h1><p className="lede">和 Agent 一起补全玩法，确认规则，查看模拟，再与电脑试玩。</p>
+      <p className="support-note">Demo 支持比大小、摸牌、出牌、弃牌和逐轮计分。复杂牌型、下注和特殊效果会先提示能力限制。</p></section>
     <section className="workspace">
-      <div className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / CLARIFY</span><h2>玩法对话</h2></div><Sparkles size={18} /></div><div className="thread">{turns.length === 0 && <div className="empty">从一句玩法描述开始。Agent 会追问玩家、牌组、动作和胜负条件。</div>}{turns.map((turn, index) => <div className={`bubble ${turn.role}`} key={index}><span>{turn.role === 'user' ? '你' : 'Agent'}</span><p>{turn.content}</p></div>)}</div><div className="composer"><textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) askAgent() }} placeholder="描述你想设计的扑克牌游戏…" /><button onClick={askAgent} disabled={busy || !input.trim()} title="发送"><Send size={17} /></button></div></div>
-      <div className="panel rules"><div className="panel-head"><div><span className="kicker">02 / CONTRACT</span><h2>规则提案</h2></div>{proposal ? <span className={`pill ${confirmed ? 'ready' : ''}`}>{confirmed ? <><Check size={13} />已确认</> : '待确认'}</span> : <span className="pill">未生成</span>}</div>{proposal ? <><pre className="dsl">{JSON.stringify(proposal, null, 2)}</pre><div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={busy || confirmed}><Check size={16} />{confirmed ? '规则已确认' : '确认规则'}</button><button className="secondary" onClick={simulate} disabled={busy || !confirmed}><Play size={16} />运行模拟</button></div></> : <div className="empty tall">完成一轮对话后，结构化规则会显示在这里。</div>}</div>
-      <div className="panel trace"><div className="panel-head"><div><span className="kicker">03 / SIMULATION</span><h2>模拟轨迹</h2></div><span className="pill">{events.length ? `${events.length} events` : '等待运行'}</span></div>{error && <div className="error"><CircleAlert size={16} /><pre>{error}</pre></div>}{events.length ? <div className="events">{events.map((event, index) => <div className="event" key={index}><span className="event-index">{String(index + 1).padStart(2, '0')}</span><div><strong>{String(event.event)}</strong><code>{JSON.stringify(event, null, 2)}</code></div></div>)}</div> : <div className="empty tall">模拟完成后，这里会展示发牌、动作、状态变化和结果。</div>}</div>
-      <div className="panel runtime"><div className="panel-head"><div><span className="kicker">04 / PLAY</span><h2>单人试玩</h2></div><span className="pill">{runtime ? (runtime.finished ? '已结束' : runtime.current_player) : '未开始'}</span></div>{!runtime ? <div className="empty tall"><button className="primary" onClick={startRuntime} disabled={!confirmed || busy}><Play size={16} />开始试玩</button></div> : <><div className="table"><div className="table-label">桌面</div>{runtime.table.length ? runtime.table.map((card, index) => <span className="card" key={index}>{card.rank}{card.suit}</span>) : <span className="muted">尚无出牌</span>}</div><div className="hands">{runtime.players.map(player => <div className="hand" key={player.id}><span>{player.id}</span><div>{player.hand.map((card, index) => <span className="card" key={index}>{card.rank}{card.suit}</span>)}</div></div>)}</div><div className="actions">{runtime.legal_actions.map(action => <button className="primary" key={action} onClick={() => playAction(action)} disabled={busy}>{action}</button>)}</div></>}</div>
-      <div className="export-bar"><div><span className="kicker">05 / EXPORT</span><strong>把这局游戏带走</strong><span>下载 DSL 和通用运行时可加载的游戏包。</span></div><button className="primary" onClick={exportGame} disabled={!proposal || busy}>下载游戏包</button></div>
+      <section className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / DESIGN</span><h2>玩法对话</h2></div><button className="secondary" disabled={!!busy} onClick={() => {setWork(EMPTY);setRuntime(null);setError('');setStatus('已开始新的设计')}}>新建游戏</button></div>
+        <div className="thread">{!work.turns.length && <p className="empty">例如：两人比大小，使用标准 52 张牌，A 最大。每轮各出一张，最高牌得 1 分，平局各得 1 分，共 3 轮。</p>}
+          {work.turns.map((turn,i) => <div className={'bubble ' + turn.role} key={i}><span>{turn.role === 'user' ? '你' : 'Agent'}</span><p>{turn.content}</p></div>)}
+        </div>
+        <div className="composer"><textarea aria-label="玩法描述" value={input} onChange={e => setInput(e.target.value)} disabled={!!busy} placeholder="描述规则或回答 Agent 的问题…" /><button onClick={ask} disabled={!!busy || configBlocked || !input.trim() || !modelConfig?.configured}>发送</button></div>
+        {!modelConfig?.configured && <p className="support-note">请先在模型设置中保存配置。</p>}
+        {modelConfig?.configured && configBlocked && <p className="support-note">模型配置正在处理或有未保存的修改，请在模型设置中完成保存或撤销。</p>}
+      </section>
+      <section className="panel rules"><div className="panel-head"><div><span className="kicker">02 / RULES</span><h2>规则提案</h2></div><span className="pill">{work.confirmed ? '已确认' : '待确认'}</span></div>
+        {work.proposal ? <><div className="rule-summary"><h3>{work.proposal.title}</h3><p>{work.proposal.description}</p><p>{work.proposal.players.min_players} 位玩家 · 每人 {work.proposal.players.starting_hand_size} 张牌 · {work.proposal.max_rounds} 轮</p></div>
+        <details><summary>查看完整规则 DSL</summary><pre className="dsl">{JSON.stringify(work.proposal,null,2)}</pre></details>
+        <div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={!!busy || work.confirmed}>确认规则</button><button className="secondary" onClick={simulate} disabled={!!busy || !work.confirmed}>运行模拟</button></div></> : <div className="empty tall">确认玩法细节后，这里会出现规则提案。</div>}
+      </section>
+      <section className="panel trace"><div className="panel-head"><div><span className="kicker">03 / VERIFY</span><h2>模拟轨迹</h2></div><span className="pill">{work.events.length} 个事件</span></div>
+        {work.events.length ? <div className="events">{work.events.map((event,i) => <div className="event" key={i}><span className="event-index">{i+1}</span><div><strong>{String(event.event)} · 第 {String(event.round)} 轮</strong><code>{JSON.stringify(event)}</code></div></div>)}</div> : <p className="empty tall">运行模拟检查发牌、电脑动作、轮次计分和结果。</p>}
+      </section>
+      <GameTable state={runtime} busy={!!busy} canStart={work.confirmed} start={start} act={act} refresh={refresh}/>
+      <section className="export-bar"><div><span className="kicker">05 / TAKE IT WITH YOU</span><h2>把这局游戏带走</h2><p>解压后打开 index.html 离线游玩。练习局固定发牌，无需 API Key。</p></div>
+        <button className="primary" disabled={!!busy || !work.confirmed} onClick={() => void operation('导出游戏',async () => {await downloadGame(work.proposal!);setStatus('游戏包已下载，解压后打开 index.html')})}>下载游戏包</button>
+      </section>
     </section>
+    <footer>牌面素材：<a href="https://github.com/hayeah/playing-cards-assets" target="_blank" rel="noreferrer">Playing Cards Assets</a> · <a href={API + '/assets/cards/LICENSE'}>MIT License</a></footer>
   </main>
 }
-
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)

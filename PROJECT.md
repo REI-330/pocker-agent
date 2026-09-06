@@ -1,61 +1,23 @@
-# Project Management
+# Pocker Agent 项目进度
 
-## Objective
+## 目标
 
-Validate that Pocker Agent can convert a natural-language poker game idea into a validated, executable rule definition and a playable web game.
+自然语言 → 规则澄清 → 严格 DSL → 确认 → 模拟 → 单人试玩 → 离线游戏。
 
-## Milestones
+## 已实现
 
-### M0: Repository and contracts
+- [x] DSL、校验、确定性引擎、阶段推进、轮次和分数。
+- [x] 官方 SDK 接入通用兼容 API；用户自填地址/Key/模型。
+- [x] 获取列表/测试连接隔离于保存；系统凭据库和 SQLite 持久化。
+- [x] Agent 澄清、生成、修复及可执行能力说明。
+- [x] Web 对话、规则确认、模拟事件、开源纸牌。
+- [x] 单人电脑回合、牌局恢复、重复请求检测、重开。
+- [x] 离线固定发牌游戏导出，与线上复用同一引擎。
+- [x] 自动回归覆盖配置、SDK 错误、引擎和离线编译一致性。
+- [x] 完成真实中转站 + 浏览器点击验收：gpt-5.5 三轮比大小、kimi-k3 两轮摸牌/出牌，记录于 docs/review-and-acceptance.md。
 
-- [x] Confirm product scope and demo boundaries
-- [x] Create repository documentation
-- [ ] Define the first Game Rule DSL schema
-- [ ] Define backend/frontend API contracts
+## 后续边界
 
-### M1: Rule foundation
-
-- [ ] Implement card, deck, player, turn, action, and score primitives
-- [ ] Implement DSL parser and validation errors
-- [ ] Implement deterministic rule engine
-- [ ] Add simulation runner and execution event log
-
-### M2: Agent loop
-
-- [x] Add OpenAI-compatible model client
-- [x] Implement clarification state machine
-- [x] Generate and repair DSL from model output
-- [x] Expose rule confirmation and simulation APIs
-
-### M3: Web demo
-
-- [x] Build natural-language design workspace
-- [x] Build rule confirmation and DSL view
-- [x] Build simulation trace view
-- [ ] Build single-player runtime
-- [ ] Add DSL and Web game export
-
-### M4: Verification
-
-- [ ] Run a complete browser-to-backend vertical slice
-- [ ] Document supported and unsupported rule constructs
-- [ ] Record demo scenarios and known limitations
-
-## Initial issues
-
-1. Define DSL v0.1 and JSON Schema.
-2. Implement deterministic poker primitives.
-3. Implement rule validation and simulation events.
-4. Implement model adapter and structured output parsing.
-5. Build the design workspace UI.
-6. Build the single-player runtime UI.
-7. Add export packaging and demo documentation.
-
-## Product constraints
-
-- No login in the demo.
-- Web only.
-- Single-player play first; multiplayer is future work.
-- No AI-generated visual assets.
-- No moderation, rights management, or public marketplace in the demo.
-- User input may describe broad rules, but unsupported executable constructs must be reported explicitly.
+- 离线导出最多 2000 个决策节点，目前用于小规模固定发牌练习。
+- 多人联网、下注/复杂牌型、持久化多用户隔离不属于本轮 demo。
+- 现有旧版仅在内存中的 Key/牌局无法迁移；新版保存后可跨刷新与重启恢复。

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
-import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
+
+from .configuration import ModelConfig
 
 
 class ModelClient(Protocol):
@@ -14,65 +14,63 @@ class ModelClient(Protocol):
 
 @dataclass
 class OpenAICompatibleClient:
-    """Minimal Chat Completions client; works with OpenAI-compatible gateways."""
-
-    api_key: str
+    api_key: str = field(repr=False)
     model: str
-    base_url: str = "https://api.openai.com/v1"
-    timeout_seconds: float = 60.0
+    base_url: str
+    timeout_seconds: float = 90
 
     @classmethod
-    def from_env(cls) -> "OpenAICompatibleClient":
-        return cls(
-            api_key=os.getenv("POCKER_AGENT_API_KEY", os.getenv("OPENAI_API_KEY", "")),
-            model=os.getenv("POCKER_AGENT_MODEL", "gpt-4o-mini"),
-            base_url=os.getenv("POCKER_AGENT_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
-        )
+    def from_config(cls, config: ModelConfig):
+        return cls(config.api_key, config.model, config.base_url)
+
+    def _sdk(self) -> OpenAI:
+        if not self.api_key:
+            raise RuntimeError("请先保存模型配置")
+        return OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout_seconds, max_retries=0)
+
+    def _failure(self, error: Exception) -> RuntimeError:
+        if isinstance(error, APIStatusError):
+            # Redact before truncation so the length cap cannot reveal a key prefix.
+            detail = str(error.body).replace(self.api_key, "[REDACTED]")[:500]
+            return RuntimeError(f"模型服务 HTTP {error.status_code}: {detail}")
+        if isinstance(error, APITimeoutError):
+            return RuntimeError("模型服务超时，请稍后重试")
+        if isinstance(error, APIConnectionError):
+            return RuntimeError("无法连接模型服务，请检查 API 地址和网络")
+        return RuntimeError("模型服务返回了无效响应，请检查 API 地址是否指向兼容 API")
 
     def complete(self, messages: list[dict[str, str]], *, response_format: dict[str, Any] | None = None) -> str:
-        if not self.api_key:
-            raise RuntimeError("missing_model_api_key: set POCKER_AGENT_API_KEY or OPENAI_API_KEY")
-        api_key = self.api_key.strip()
-        if api_key.lower().startswith("bearer "):
-            api_key = api_key[7:].strip()
-        payload: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": 0}
-        if response_format:
-            payload["response_format"] = response_format
-        request = Request(
-            f"{self.base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST",
-        )
+        # SDK owns HTTP/authentication/error parsing. Omit temperature for models that reject it.
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except HTTPError as error:
-            try:
-                detail = error.read().decode("utf-8", errors="replace")[:500]
-            except Exception:
-                detail = ""
-            raise RuntimeError(f"model_request_failed: HTTP {error.code} {detail}".strip()) from error
-        except (URLError, TimeoutError) as error:
-            raise RuntimeError(f"model_request_failed: {error}") from error
-        try:
-            return body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as error:
-            raise RuntimeError("model_response_invalid: missing choices[0].message.content") from error
+            with self._sdk() as sdk:
+                result = sdk.chat.completions.create(
+                    model=self.model, messages=messages, stream=False,
+                    **({"response_format": response_format} if response_format else {}),
+                )
+                content = result.choices[0].message.content
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("empty model message")
+                return content
+        except (APIStatusError, APIConnectionError, ValueError, TypeError, AttributeError, IndexError) as error:
+            raise self._failure(error) from error
 
     def list_models(self) -> list[str]:
-        if not self.api_key:
-            raise RuntimeError("missing_model_api_key")
-        api_key = self.api_key.strip()
-        if api_key.lower().startswith("bearer "):
-            api_key = api_key[7:].strip()
-        request = Request(f"{self.base_url}/models", headers={"Authorization": f"Bearer {api_key}"}, method="GET")
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except HTTPError as error:
-            raise RuntimeError(f"model_list_failed: HTTP {error.code}") from error
-        except (URLError, TimeoutError) as error:
-            raise RuntimeError(f"model_list_failed: {error}") from error
-        models = body.get("data", []) if isinstance(body, dict) else []
-        return sorted(str(item["id"]) for item in models if isinstance(item, dict) and item.get("id"))
+            with self._sdk() as sdk:
+                # Inspect raw JSON to accept common compatible gateway envelopes.
+                response = sdk.models.with_raw_response.list()
+                body = response.http_response.json()
+            candidates = body.get("data", body.get("models")) if isinstance(body, dict) else body
+            if not isinstance(candidates, list):
+                raise ValueError("expected model array")
+            names = set()
+            for item in candidates:
+                value = item if isinstance(item, str) else next(
+                    (item[key] for key in ("id", "name", "model") if isinstance(item.get(key), str)), None
+                ) if isinstance(item, dict) else None
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("invalid model entry")
+                names.add(value.strip())
+            return sorted(names)
+        except (APIStatusError, APIConnectionError, ValueError, TypeError, AttributeError) as error:
+            raise self._failure(error) from error

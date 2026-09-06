@@ -7,4 +7,9 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-
+.playwright-mcp/
+artifacts/
+*.log
+*.db
+*.db-wal
+*.db-shm

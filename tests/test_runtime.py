@@ -28,3 +28,12 @@ def test_export_package_contains_dsl_manifest():
     with ZipFile(BytesIO(content)) as archive:
         assert "game.json" in archive.namelist()
         assert b"runtime-demo" in archive.read("game.json")
+
+def test_export_contains_playable_html_artwork_and_license():
+    content, _ = export_package(rules())
+    with ZipFile(BytesIO(content)) as archive:
+        html = archive.read("index.html").decode("utf-8")
+        assert "__GAME_DATA__" not in html
+        assert 'id="restart"' in html and 'id="moves"' in html
+        assert "cards/ace_of_spades.svg" in archive.namelist()
+        assert "MIT License" in archive.read("cards/LICENSE").decode("utf-8")
