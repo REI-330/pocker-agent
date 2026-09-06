@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Check, ChevronRight, CircleAlert, Play, Send, Sparkles } from 'lucide-react'
 import './styles.css'
+import './runtime.css'
 
 type Turn = { role: 'user' | 'assistant'; content: string }
 type Rule = Record<string, unknown>
@@ -15,6 +16,7 @@ function App() {
   const [confirmed, setConfirmed] = useState(false)
   const [status, setStatus] = useState('等待描述玩法')
   const [events, setEvents] = useState<Record<string, unknown>[]>([])
+  const [runtime, setRuntime] = useState<{session_id: string; current_player: string; legal_actions: string[]; players: {id: string; hand: {rank: string; suit: string}[]}[]; table: {rank: string; suit: string}[]; finished: boolean} | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -48,6 +50,30 @@ function App() {
     finally { setBusy(false) }
   }
 
+  async function startRuntime() {
+    if (!proposal || busy) return
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(`${API}/api/runtime/sessions?seed=7`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(proposal) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || '试玩启动失败')
+      setRuntime(data); setStatus('试玩中 · 轮到 ' + data.current_player)
+    } catch (err) { setError(err instanceof Error ? err.message : '试玩启动失败') }
+    finally { setBusy(false) }
+  }
+
+  async function playAction(action: string) {
+    if (!runtime || busy) return
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(`${API}/api/runtime/sessions/${runtime.session_id}/actions/${encodeURIComponent(action)}`, { method: 'POST' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || '动作执行失败')
+      setRuntime(data.state); setStatus(data.state.finished ? '试玩完成' : '试玩中 · 轮到 ' + data.state.current_player)
+    } catch (err) { setError(err instanceof Error ? err.message : '动作执行失败') }
+    finally { setBusy(false) }
+  }
+
   async function confirmRules() {
     if (!proposal || busy) return
     setBusy(true); setError('')
@@ -67,6 +93,7 @@ function App() {
       <div className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / CLARIFY</span><h2>玩法对话</h2></div><Sparkles size={18} /></div><div className="thread">{turns.length === 0 && <div className="empty">从一句玩法描述开始。Agent 会追问玩家、牌组、动作和胜负条件。</div>}{turns.map((turn, index) => <div className={`bubble ${turn.role}`} key={index}><span>{turn.role === 'user' ? '你' : 'Agent'}</span><p>{turn.content}</p></div>)}</div><div className="composer"><textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) askAgent() }} placeholder="描述你想设计的扑克牌游戏…" /><button onClick={askAgent} disabled={busy || !input.trim()} title="发送"><Send size={17} /></button></div></div>
       <div className="panel rules"><div className="panel-head"><div><span className="kicker">02 / CONTRACT</span><h2>规则提案</h2></div>{proposal ? <span className={`pill ${confirmed ? 'ready' : ''}`}>{confirmed ? <><Check size={13} />已确认</> : '待确认'}</span> : <span className="pill">未生成</span>}</div>{proposal ? <><pre className="dsl">{JSON.stringify(proposal, null, 2)}</pre><div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={busy || confirmed}><Check size={16} />{confirmed ? '规则已确认' : '确认规则'}</button><button className="secondary" onClick={simulate} disabled={busy || !confirmed}><Play size={16} />运行模拟</button></div></> : <div className="empty tall">完成一轮对话后，结构化规则会显示在这里。</div>}</div>
       <div className="panel trace"><div className="panel-head"><div><span className="kicker">03 / SIMULATION</span><h2>模拟轨迹</h2></div><span className="pill">{events.length ? `${events.length} events` : '等待运行'}</span></div>{error && <div className="error"><CircleAlert size={16} /><pre>{error}</pre></div>}{events.length ? <div className="events">{events.map((event, index) => <div className="event" key={index}><span className="event-index">{String(index + 1).padStart(2, '0')}</span><div><strong>{String(event.event)}</strong><code>{JSON.stringify(event, null, 2)}</code></div></div>)}</div> : <div className="empty tall">模拟完成后，这里会展示发牌、动作、状态变化和结果。</div>}</div>
+      <div className="panel runtime"><div className="panel-head"><div><span className="kicker">04 / PLAY</span><h2>单人试玩</h2></div><span className="pill">{runtime ? (runtime.finished ? '已结束' : runtime.current_player) : '未开始'}</span></div>{!runtime ? <div className="empty tall"><button className="primary" onClick={startRuntime} disabled={!confirmed || busy}><Play size={16} />开始试玩</button></div> : <><div className="table"><div className="table-label">桌面</div>{runtime.table.length ? runtime.table.map((card, index) => <span className="card" key={index}>{card.rank}{card.suit}</span>) : <span className="muted">尚无出牌</span>}</div><div className="hands">{runtime.players.map(player => <div className="hand" key={player.id}><span>{player.id}</span><div>{player.hand.map((card, index) => <span className="card" key={index}>{card.rank}{card.suit}</span>)}</div></div>)}</div><div className="actions">{runtime.legal_actions.map(action => <button className="primary" key={action} onClick={() => playAction(action)} disabled={busy}>{action}</button>)}</div></>}</div>
     </section>
   </main>
 }

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from .agent import AgentSession, RuleAgent
 from .llm import OpenAICompatibleClient
 from .models import GameRuleDSL
+from .runtime import RuntimeStore, export_package, snapshot
 from .simulation import simulate
 from .validation import validate_dsl
 
@@ -18,6 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 agent = RuleAgent(OpenAICompatibleClient.from_env())
+runtime_store = RuntimeStore()
 
 
 @app.get("/health")
@@ -58,3 +61,27 @@ def agent_confirm(payload: dict) -> dict:
     session = AgentSession(messages=payload.get("messages", []), proposal=payload.get("proposal"))
     result = agent.confirm(session)
     return {"kind": result.kind, "message": result.message, "errors": result.errors, "rules": result.rules.model_dump(mode="json") if result.rules else None}
+
+
+@app.post("/api/runtime/sessions")
+def create_runtime_session(rules: GameRuleDSL, seed: int = 0) -> dict:
+    session = runtime_store.create(rules, seed=seed)
+    return snapshot(session)
+
+
+@app.post("/api/runtime/sessions/{session_id}/actions/{action_name}")
+def execute_runtime_action(session_id: str, action_name: str) -> dict:
+    try:
+        session = runtime_store.get(session_id)
+        event = session.engine.step(action_name)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"event": event, "state": snapshot(session)}
+
+
+@app.post("/api/games/export")
+def export_game(rules: GameRuleDSL) -> Response:
+    content, filename = export_package(rules)
+    return Response(content=content, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
