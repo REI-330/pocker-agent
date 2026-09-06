@@ -74,6 +74,21 @@ function App() {
     finally { setBusy(false) }
   }
 
+  async function exportGame() {
+    if (!proposal || busy) return
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(`${API}/api/games/export`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(proposal) })
+      if (!response.ok) throw new Error('导出失败')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url; link.download = `${String(proposal.game_id || 'pocker-game')}.pocker-game.zip`; link.click()
+      URL.revokeObjectURL(url); setStatus('游戏包已导出')
+    } catch (err) { setError(err instanceof Error ? err.message : '导出失败') }
+    finally { setBusy(false) }
+  }
+
   async function confirmRules() {
     if (!proposal || busy) return
     setBusy(true); setError('')
@@ -94,6 +109,7 @@ function App() {
       <div className="panel rules"><div className="panel-head"><div><span className="kicker">02 / CONTRACT</span><h2>规则提案</h2></div>{proposal ? <span className={`pill ${confirmed ? 'ready' : ''}`}>{confirmed ? <><Check size={13} />已确认</> : '待确认'}</span> : <span className="pill">未生成</span>}</div>{proposal ? <><pre className="dsl">{JSON.stringify(proposal, null, 2)}</pre><div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={busy || confirmed}><Check size={16} />{confirmed ? '规则已确认' : '确认规则'}</button><button className="secondary" onClick={simulate} disabled={busy || !confirmed}><Play size={16} />运行模拟</button></div></> : <div className="empty tall">完成一轮对话后，结构化规则会显示在这里。</div>}</div>
       <div className="panel trace"><div className="panel-head"><div><span className="kicker">03 / SIMULATION</span><h2>模拟轨迹</h2></div><span className="pill">{events.length ? `${events.length} events` : '等待运行'}</span></div>{error && <div className="error"><CircleAlert size={16} /><pre>{error}</pre></div>}{events.length ? <div className="events">{events.map((event, index) => <div className="event" key={index}><span className="event-index">{String(index + 1).padStart(2, '0')}</span><div><strong>{String(event.event)}</strong><code>{JSON.stringify(event, null, 2)}</code></div></div>)}</div> : <div className="empty tall">模拟完成后，这里会展示发牌、动作、状态变化和结果。</div>}</div>
       <div className="panel runtime"><div className="panel-head"><div><span className="kicker">04 / PLAY</span><h2>单人试玩</h2></div><span className="pill">{runtime ? (runtime.finished ? '已结束' : runtime.current_player) : '未开始'}</span></div>{!runtime ? <div className="empty tall"><button className="primary" onClick={startRuntime} disabled={!confirmed || busy}><Play size={16} />开始试玩</button></div> : <><div className="table"><div className="table-label">桌面</div>{runtime.table.length ? runtime.table.map((card, index) => <span className="card" key={index}>{card.rank}{card.suit}</span>) : <span className="muted">尚无出牌</span>}</div><div className="hands">{runtime.players.map(player => <div className="hand" key={player.id}><span>{player.id}</span><div>{player.hand.map((card, index) => <span className="card" key={index}>{card.rank}{card.suit}</span>)}</div></div>)}</div><div className="actions">{runtime.legal_actions.map(action => <button className="primary" key={action} onClick={() => playAction(action)} disabled={busy}>{action}</button>)}</div></>}</div>
+      <div className="export-bar"><div><span className="kicker">05 / EXPORT</span><strong>把这局游戏带走</strong><span>下载 DSL 和通用运行时可加载的游戏包。</span></div><button className="primary" onClick={exportGame} disabled={!proposal || busy}>下载游戏包</button></div>
     </section>
   </main>
 }
