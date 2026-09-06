@@ -110,6 +110,7 @@ class RuleAgent:
     def _system_prompt() -> str:
         return (
             "你是 Pocker Agent 的扑克牌规则设计助手。根据对话澄清规则。"
+            "Your response must be a valid json object."
             "当关键规则缺失时返回 {type:'question',question:string,missing:string[]}。"
             "当信息足够时返回 {type:'proposal',summary:string,rules:<Game Rule DSL>}。"
             "只允许使用这个 DSL v0.1：" + json.dumps(DSL_SCHEMA_HINT, ensure_ascii=False)

@@ -61,6 +61,12 @@ def test_confirm_requires_proposal():
     assert result.kind == "error"
 
 
+def test_agent_prompt_explicitly_requests_json_for_json_mode_gateways():
+    from pocker_agent.agent import RuleAgent
+
+    assert "json" in RuleAgent._system_prompt()
+
+
 def test_repair_failure_is_visible_to_caller():
     broken = {**valid_rules(), "phases": [{"name": "main", "actions": ["missing"]}]}
     model = FailingRepairModel(json.dumps({"type": "proposal", "rules": broken}))
