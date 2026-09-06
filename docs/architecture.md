@@ -13,6 +13,8 @@ React Web UI
   -> SQLite/local demo storage
 ```
 
+The model adapter uses the Chat Completions-compatible `POST /chat/completions` contract. `base_url`, model, and API key are environment-configured, so a local gateway or another compatible provider can be used without changing the Agent state machine.
+
 ## Boundaries
 
 - The LLM proposes structured rules and clarifications. It does not directly execute game actions.

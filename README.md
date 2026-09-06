@@ -50,3 +50,16 @@ The first vertical slice exposes:
 - `POST /api/simulations?seed=0`
 
 The current DSL and engine are v0.1 contracts. The API accepts a complete DSL fixture; the natural-language Agent loop and Web UI are the next milestones.
+
+Agent configuration is read from environment variables. Copy `.env.example` into your local environment and set an OpenAI-compatible API key:
+
+```powershell
+$env:POCKER_AGENT_API_KEY = "your-key"
+$env:POCKER_AGENT_BASE_URL = "https://api.openai.com/v1"
+$env:POCKER_AGENT_MODEL = "gpt-4o-mini"
+```
+
+Agent endpoints:
+
+- `POST /api/agent/turn` accepts `{ "message": "...", "messages": [], "proposal": null }` and returns a question, proposal, or validation error.
+- `POST /api/agent/confirm` validates the returned proposal before simulation.

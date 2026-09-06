@@ -22,10 +22,10 @@ Validate that Pocker Agent can convert a natural-language poker game idea into a
 
 ### M2: Agent loop
 
-- [ ] Add OpenAI-compatible model client
-- [ ] Implement clarification state machine
-- [ ] Generate and repair DSL from model output
-- [ ] Expose rule confirmation and simulation APIs
+- [x] Add OpenAI-compatible model client
+- [x] Implement clarification state machine
+- [x] Generate and repair DSL from model output
+- [x] Expose rule confirmation and simulation APIs
 
 ### M3: Web demo
 
