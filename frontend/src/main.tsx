@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Check, ChevronRight, CircleAlert, Play, Send, Sparkles } from 'lucide-react'
+import { Check, CircleAlert, Play, Send, Sparkles } from 'lucide-react'
 import './styles.css'
 import './runtime.css'
 import './config.css'
@@ -24,9 +24,14 @@ function App() {
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1')
   const [model, setModel] = useState('gpt-4o-mini')
-  const [provider, setProvider] = useState('OpenAI')
   const [models, setModels] = useState<string[]>([])
   const [connectionState, setConnectionState] = useState('未连接')
+
+  React.useEffect(() => {
+    fetch(`${API}/api/agent/config`).then(response => response.json()).then(data => {
+      if (data.configured) { setBaseUrl(data.base_url || ''); setModel(data.model || ''); setConnectionState('已配置') }
+    }).catch(() => undefined)
+  }, [])
 
   async function askAgent() {
     if (!input.trim() || busy) return
@@ -58,15 +63,6 @@ function App() {
     finally { setBusy(false) }
   }
 
-  function selectProvider(value: string) {
-    setProvider(value)
-    if (value === 'OpenAI') setBaseUrl('https://api.openai.com/v1')
-    if (value === 'DeepSeek') setBaseUrl('https://api.deepseek.com/v1')
-    if (value === 'Gemini') setBaseUrl('https://generativelanguage.googleapis.com/v1beta/openai')
-    if (value === 'APIPATHS') setBaseUrl('https://apipaths.com/v1')
-    if (value === 'Custom') setBaseUrl('')
-  }
-
   async function loadModels() {
     if ((!apiKey.trim() && connectionState === '未连接') || busy) return
     setBusy(true); setError('')
@@ -86,7 +82,7 @@ function App() {
       const response = await fetch(`${API}/api/agent/test-connection`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_key: apiKey, base_url: baseUrl, model }) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || '连接测试失败')
-      setConnectionState(`连接正常 · ${data.model_count} 个模型`)
+      setConnectionState(`连接正常 · ${data.model}`)
     } catch (err) { setConnectionState('连接失败'); setError(err instanceof Error ? err.message : '连接测试失败') }
     finally { setBusy(false) }
   }
@@ -156,7 +152,7 @@ function App() {
 
   return <main className="shell">
     <header className="topbar"><div className="brand"><span className="brand-mark">♠</span><div><strong>Pocker Agent</strong><small>规则设计工作台</small></div></div><div className="top-actions"><span className="status"><span className="dot" />{status}</span><button className="config-link" onClick={() => setShowConfig(!showConfig)}>模型设置</button></div></header>
-    {showConfig && <section className="config-panel"><div><span className="kicker">MODEL CONFIGURATION</span><h2>连接你的模型</h2><p>Key 仅发送到当前本机 API 服务，关闭页面后不会写入浏览器。</p><strong className="connection-state">{connectionState}</strong></div><div className="config-fields"><select value={provider} onChange={event => selectProvider(event.target.value)}><option>OpenAI</option><option>DeepSeek</option><option>Gemini</option><option>APIPATHS</option><option>Custom</option></select><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="API Key（已配置可留空）" autoComplete="off" /><input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="Base URL（含 /v1）" /><input list="model-options" value={model} onChange={event => setModel(event.target.value)} placeholder="Model" /><datalist id="model-options">{models.map(item => <option key={item} value={item} />)}</datalist><div className="config-buttons"><button className="secondary" onClick={loadModels} disabled={(!apiKey.trim() && connectionState === '未连接') || busy}>获取模型列表</button><button className="secondary" onClick={testConnection} disabled={(!apiKey.trim() && connectionState === '未连接') || busy}>测试连接</button><button className="primary" onClick={configureModel} disabled={!apiKey.trim() || busy}>保存配置</button></div></div></section>}
+    {showConfig && <section className="config-panel"><div><span className="kicker">MODEL CONFIGURATION</span><h2>连接你的模型</h2><p>填写兼容 Chat Completions 的 Base URL、API Key 和模型名。Key 仅发送到当前本机 API 服务。</p><strong className="connection-state">{connectionState}</strong></div><div className="config-fields"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="API Key（已配置可留空）" autoComplete="off" /><input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="Base URL，例如 https://host/v1" /><input list="model-options" value={model} onChange={event => setModel(event.target.value)} placeholder="Model 名称" /><datalist id="model-options">{models.map(item => <option key={item} value={item} />)}</datalist><div className="config-buttons"><button className="secondary" onClick={loadModels} disabled={(!apiKey.trim() && connectionState === '未连接') || busy}>获取模型列表</button><button className="secondary" onClick={testConnection} disabled={(!apiKey.trim() && connectionState === '未连接') || busy}>测试连接</button><button className="primary" onClick={configureModel} disabled={!apiKey.trim() || !baseUrl.trim() || !model.trim() || busy}>保存配置</button></div></div></section>}
     <section className="hero"><p className="eyebrow">GAME DESIGN LOOP</p><h1>把一句玩法想法，变成一局可玩的牌局。</h1><p className="lede">描述规则，和 Agent 一起补全细节。确认后运行模拟，检查每一步牌局状态。</p></section>
     <section className="workspace">
       <div className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / CLARIFY</span><h2>玩法对话</h2></div><Sparkles size={18} /></div><div className="thread">{turns.length === 0 && <div className="empty">从一句玩法描述开始。Agent 会追问玩家、牌组、动作和胜负条件。</div>}{turns.map((turn, index) => <div className={`bubble ${turn.role}`} key={index}><span>{turn.role === 'user' ? '你' : 'Agent'}</span><p>{turn.content}</p></div>)}</div><div className="composer"><textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) askAgent() }} placeholder="描述你想设计的扑克牌游戏…" /><button onClick={askAgent} disabled={busy || !input.trim()} title="发送"><Send size={17} /></button></div></div>

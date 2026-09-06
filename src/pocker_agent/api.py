@@ -28,6 +28,11 @@ def health() -> dict[str, str]:
     return {"status": "ok", "version": "0.1.0", "model_configured": str(bool(agent.model.api_key)).lower()}
 
 
+@app.get("/api/agent/config")
+def agent_config() -> dict[str, str | bool]:
+    return {"configured": bool(agent.model.api_key), "base_url": agent.model.base_url, "model": agent.model.model}
+
+
 @app.post("/api/agent/config")
 def configure_agent(payload: dict) -> dict[str, str]:
     api_key = payload.get("api_key")
@@ -51,7 +56,7 @@ def list_agent_models(payload: dict) -> dict:
         models = agent.model.list_models()
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
-    return {"models": models, "base_url": agent.model.base_url}
+    return {"models": models, "selected_model": agent.model.model, "base_url": agent.model.base_url}
 
 
 @app.post("/api/agent/test-connection")
