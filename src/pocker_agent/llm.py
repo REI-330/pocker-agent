@@ -59,3 +59,20 @@ class OpenAICompatibleClient:
             return body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
             raise RuntimeError("model_response_invalid: missing choices[0].message.content") from error
+
+    def list_models(self) -> list[str]:
+        if not self.api_key:
+            raise RuntimeError("missing_model_api_key")
+        api_key = self.api_key.strip()
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key[7:].strip()
+        request = Request(f"{self.base_url}/models", headers={"Authorization": f"Bearer {api_key}"}, method="GET")
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            raise RuntimeError(f"model_list_failed: HTTP {error.code}") from error
+        except (URLError, TimeoutError) as error:
+            raise RuntimeError(f"model_list_failed: {error}") from error
+        models = body.get("data", []) if isinstance(body, dict) else []
+        return sorted(str(item["id"]) for item in models if isinstance(item, dict) and item.get("id"))

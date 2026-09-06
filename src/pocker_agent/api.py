@@ -41,6 +41,32 @@ def configure_agent(payload: dict) -> dict[str, str]:
     return {"status": "configured", "model": agent.model.model, "base_url": agent.model.base_url}
 
 
+@app.post("/api/agent/models")
+def list_agent_models(payload: dict) -> dict:
+    if isinstance(payload.get("api_key"), str) and payload["api_key"].strip():
+        agent.model.api_key = payload["api_key"].strip()
+    if isinstance(payload.get("base_url"), str) and payload["base_url"].strip():
+        agent.model.base_url = payload["base_url"].strip().rstrip("/")
+    try:
+        models = agent.model.list_models()
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return {"models": models, "base_url": agent.model.base_url}
+
+
+@app.post("/api/agent/test-connection")
+def test_agent_connection(payload: dict) -> dict:
+    if isinstance(payload.get("api_key"), str) and payload["api_key"].strip():
+        agent.model.api_key = payload["api_key"].strip()
+    if isinstance(payload.get("base_url"), str) and payload["base_url"].strip():
+        agent.model.base_url = payload["base_url"].strip().rstrip("/")
+    try:
+        models = agent.model.list_models()
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return {"ok": True, "model": agent.model.model, "model_count": len(models)}
+
+
 @app.post("/api/rules/validate")
 def validate_rules(payload: dict) -> dict:
     rules, errors = validate_dsl(payload)
