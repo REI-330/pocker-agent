@@ -43,6 +43,16 @@ Start the API locally:
 uv run uvicorn pocker_agent.api:app --app-dir src --reload
 ```
 
+Start the Web workspace in another terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173/` after the API is running.
+
 The first vertical slice exposes:
 
 - `GET /health`

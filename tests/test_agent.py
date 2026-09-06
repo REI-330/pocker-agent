@@ -11,6 +11,18 @@ class FakeModel:
         return self.responses.pop(0)
 
 
+class FailingRepairModel:
+    def __init__(self, first_response: str):
+        self.first_response = first_response
+        self.calls = 0
+
+    def complete(self, messages, *, response_format=None):
+        self.calls += 1
+        if self.calls > 1:
+            raise RuntimeError("upstream_timeout")
+        return self.first_response
+
+
 def valid_rules():
     return {
         "game_id": "agent-demo",
@@ -47,3 +59,11 @@ def test_agent_repairs_invalid_dsl():
 def test_confirm_requires_proposal():
     result = RuleAgent(FakeModel()).confirm(AgentSession())
     assert result.kind == "error"
+
+
+def test_repair_failure_is_visible_to_caller():
+    broken = {**valid_rules(), "phases": [{"name": "main", "actions": ["missing"]}]}
+    model = FailingRepairModel(json.dumps({"type": "proposal", "rules": broken}))
+    result = RuleAgent(model).turn(AgentSession(), "生成规则")
+    assert result.kind == "error"
+    assert any(error.startswith("repair_failed:") for error in result.errors)

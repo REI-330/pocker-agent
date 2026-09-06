@@ -29,9 +29,9 @@ Validate that Pocker Agent can convert a natural-language poker game idea into a
 
 ### M3: Web demo
 
-- [ ] Build natural-language design workspace
-- [ ] Build rule confirmation and DSL view
-- [ ] Build simulation trace view
+- [x] Build natural-language design workspace
+- [x] Build rule confirmation and DSL view
+- [x] Build simulation trace view
 - [ ] Build single-player runtime
 - [ ] Add DSL and Web game export
 

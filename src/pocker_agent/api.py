@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from .agent import AgentSession, RuleAgent
 from .llm import OpenAICompatibleClient
@@ -9,6 +10,13 @@ from .simulation import simulate
 from .validation import validate_dsl
 
 app = FastAPI(title="Pocker Agent", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 agent = RuleAgent(OpenAICompatibleClient.from_env())
 
 

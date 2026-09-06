@@ -1,0 +1,74 @@
+import React, { useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { Check, ChevronRight, CircleAlert, Play, Send, Sparkles } from 'lucide-react'
+import './styles.css'
+
+type Turn = { role: 'user' | 'assistant'; content: string }
+type Rule = Record<string, unknown>
+
+const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+
+function App() {
+  const [input, setInput] = useState('我想做一个两人比大小游戏，每人一张牌，翻开后点数高的人获胜。')
+  const [turns, setTurns] = useState<Turn[]>([])
+  const [proposal, setProposal] = useState<Rule | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [status, setStatus] = useState('等待描述玩法')
+  const [events, setEvents] = useState<Record<string, unknown>[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function askAgent() {
+    if (!input.trim() || busy) return
+    setBusy(true); setError('')
+    const next = [...turns, { role: 'user' as const, content: input.trim() }]
+    try {
+      const response = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message: input.trim(), messages: turns.map(turn => ({ role: turn.role, content: turn.content })), proposal }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Agent 请求失败')
+      setTurns([...next, { role: 'assistant', content: data.message }])
+      if (data.rules) setProposal(data.rules)
+      if (data.rules) setConfirmed(false)
+      setStatus(data.kind === 'proposal' ? '规则待确认' : data.kind === 'question' ? '等待补充信息' : '需要修正规则')
+      if (data.errors?.length) setError(data.errors.join('\n'))
+      setInput('')
+    } catch (err) { setError(err instanceof Error ? err.message : '请求失败') }
+    finally { setBusy(false) }
+  }
+
+  async function simulate() {
+    if (!proposal || !confirmed || busy) return
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(`${API}/api/simulations?seed=7`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(proposal) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || '模拟失败')
+      setEvents(data.events || []); setStatus(`模拟完成 · ${data.winner || '无胜者'}`)
+    } catch (err) { setError(err instanceof Error ? err.message : '模拟失败') }
+    finally { setBusy(false) }
+  }
+
+  async function confirmRules() {
+    if (!proposal || busy) return
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(`${API}/api/agent/confirm`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ proposal, messages: turns.map(turn => ({ role: turn.role, content: turn.content })) }) })
+      const data = await response.json()
+      if (!response.ok || data.kind !== 'confirmed') throw new Error(data.errors?.join('\n') || data.detail || '规则确认失败')
+      setConfirmed(true); setStatus('规则已确认 · 可以模拟')
+    } catch (err) { setError(err instanceof Error ? err.message : '规则确认失败') }
+    finally { setBusy(false) }
+  }
+
+  return <main className="shell">
+    <header className="topbar"><div className="brand"><span className="brand-mark">♠</span><div><strong>Pocker Agent</strong><small>规则设计工作台</small></div></div><span className="status"><span className="dot" />{status}</span></header>
+    <section className="hero"><p className="eyebrow">GAME DESIGN LOOP</p><h1>把一句玩法想法，变成一局可玩的牌局。</h1><p className="lede">描述规则，和 Agent 一起补全细节。确认后运行模拟，检查每一步牌局状态。</p></section>
+    <section className="workspace">
+      <div className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / CLARIFY</span><h2>玩法对话</h2></div><Sparkles size={18} /></div><div className="thread">{turns.length === 0 && <div className="empty">从一句玩法描述开始。Agent 会追问玩家、牌组、动作和胜负条件。</div>}{turns.map((turn, index) => <div className={`bubble ${turn.role}`} key={index}><span>{turn.role === 'user' ? '你' : 'Agent'}</span><p>{turn.content}</p></div>)}</div><div className="composer"><textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) askAgent() }} placeholder="描述你想设计的扑克牌游戏…" /><button onClick={askAgent} disabled={busy || !input.trim()} title="发送"><Send size={17} /></button></div></div>
+      <div className="panel rules"><div className="panel-head"><div><span className="kicker">02 / CONTRACT</span><h2>规则提案</h2></div>{proposal ? <span className={`pill ${confirmed ? 'ready' : ''}`}>{confirmed ? <><Check size={13} />已确认</> : '待确认'}</span> : <span className="pill">未生成</span>}</div>{proposal ? <><pre className="dsl">{JSON.stringify(proposal, null, 2)}</pre><div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={busy || confirmed}><Check size={16} />{confirmed ? '规则已确认' : '确认规则'}</button><button className="secondary" onClick={simulate} disabled={busy || !confirmed}><Play size={16} />运行模拟</button></div></> : <div className="empty tall">完成一轮对话后，结构化规则会显示在这里。</div>}</div>
+      <div className="panel trace"><div className="panel-head"><div><span className="kicker">03 / SIMULATION</span><h2>模拟轨迹</h2></div><span className="pill">{events.length ? `${events.length} events` : '等待运行'}</span></div>{error && <div className="error"><CircleAlert size={16} /><pre>{error}</pre></div>}{events.length ? <div className="events">{events.map((event, index) => <div className="event" key={index}><span className="event-index">{String(index + 1).padStart(2, '0')}</span><div><strong>{String(event.event)}</strong><code>{JSON.stringify(event, null, 2)}</code></div></div>)}</div> : <div className="empty tall">模拟完成后，这里会展示发牌、动作、状态变化和结果。</div>}</div>
+    </section>
+  </main>
+}
+
+createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
