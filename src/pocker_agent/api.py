@@ -60,11 +60,13 @@ def test_agent_connection(payload: dict) -> dict:
         agent.model.api_key = payload["api_key"].strip()
     if isinstance(payload.get("base_url"), str) and payload["base_url"].strip():
         agent.model.base_url = payload["base_url"].strip().rstrip("/")
+    if isinstance(payload.get("model"), str) and payload["model"].strip():
+        agent.model.model = payload["model"].strip()
     try:
-        models = agent.model.list_models()
+        agent.model.complete([{"role": "user", "content": "Reply with OK."}])
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
-    return {"ok": True, "model": agent.model.model, "model_count": len(models)}
+    return {"ok": True, "model": agent.model.model}
 
 
 @app.post("/api/rules/validate")

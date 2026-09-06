@@ -82,7 +82,7 @@ function App() {
     if (!apiKey.trim() || busy) return
     setBusy(true); setError('')
     try {
-      const response = await fetch(`${API}/api/agent/test-connection`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }) })
+      const response = await fetch(`${API}/api/agent/test-connection`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_key: apiKey, base_url: baseUrl, model }) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || '连接测试失败')
       setConnectionState(`连接正常 · ${data.model_count} 个模型`)
