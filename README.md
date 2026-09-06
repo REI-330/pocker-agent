@@ -30,4 +30,23 @@ The demo uses a reusable poker deck and table UI. Core game behavior is executed
 
 ## Local development
 
-The implementation is being built in milestones. Setup commands will be added with the first runnable vertical slice.
+Install dependencies and run the focused test suite:
+
+```powershell
+uv sync
+uv run pytest -q
+```
+
+Start the API locally:
+
+```powershell
+uv run uvicorn pocker_agent.api:app --app-dir src --reload
+```
+
+The first vertical slice exposes:
+
+- `GET /health`
+- `POST /api/rules/validate`
+- `POST /api/simulations?seed=0`
+
+The current DSL and engine are v0.1 contracts. The API accepts a complete DSL fixture; the natural-language Agent loop and Web UI are the next milestones.
