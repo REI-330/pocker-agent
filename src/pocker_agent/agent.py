@@ -58,10 +58,12 @@ class RuleAgent:
         rules, errors = validate_dsl(proposal)
         session.proposal = proposal
         if errors:
-            repair = self._repair(proposal, errors)
+            repair, repair_error = self._repair(proposal, errors)
             if repair is not None:
                 rules, errors = validate_dsl(repair)
                 session.proposal = repair
+            elif repair_error:
+                errors.append(repair_error)
         if errors:
             return AgentTurn(kind="error", message="规则暂时无法执行，请修正以下问题。", errors=errors)
         summary = str(result.get("summary", "规则已生成，请确认后开始模拟。"))
@@ -76,7 +78,7 @@ class RuleAgent:
         session.confirmed = True
         return AgentTurn(kind="confirmed", message="规则已确认，可以开始模拟。", rules=rules)
 
-    def _repair(self, proposal: dict[str, Any], errors: list[str]) -> dict[str, Any] | None:
+    def _repair(self, proposal: dict[str, Any], errors: list[str]) -> tuple[dict[str, Any] | None, str | None]:
         repair_prompt = [
             {"role": "system", "content": "修复 Game Rule DSL，只返回 JSON 对象，不要解释。"},
             {"role": "user", "content": json.dumps({"rules": proposal, "errors": errors}, ensure_ascii=False)},
@@ -84,9 +86,11 @@ class RuleAgent:
         try:
             raw = self.model.complete(repair_prompt, response_format={"type": "json_object"})
             repaired = self._parse_json(raw)
-            return repaired.get("rules", repaired) if isinstance(repaired, dict) else None
-        except RuntimeError:
-            return None
+            if not isinstance(repaired, dict):
+                return None, "repair_output_not_object"
+            return repaired.get("rules", repaired), None
+        except RuntimeError as error:
+            return None, f"repair_failed:{error}"
 
     @staticmethod
     def _parse_json(raw: str) -> dict[str, Any]:
