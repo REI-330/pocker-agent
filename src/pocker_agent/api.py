@@ -25,7 +25,20 @@ runtime_store = RuntimeStore()
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.1.0", "model_configured": str(bool(agent.model.api_key)).lower()}
+
+
+@app.post("/api/agent/config")
+def configure_agent(payload: dict) -> dict[str, str]:
+    api_key = payload.get("api_key")
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise HTTPException(status_code=400, detail="api_key is required")
+    agent.model.api_key = api_key.strip()
+    if isinstance(payload.get("base_url"), str) and payload["base_url"].strip():
+        agent.model.base_url = payload["base_url"].strip().rstrip("/")
+    if isinstance(payload.get("model"), str) and payload["model"].strip():
+        agent.model.model = payload["model"].strip()
+    return {"status": "configured", "model": agent.model.model, "base_url": agent.model.base_url}
 
 
 @app.post("/api/rules/validate")

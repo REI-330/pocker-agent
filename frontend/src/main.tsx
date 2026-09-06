@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Check, ChevronRight, CircleAlert, Play, Send, Sparkles } from 'lucide-react'
 import './styles.css'
 import './runtime.css'
+import './config.css'
 
 type Turn = { role: 'user' | 'assistant'; content: string }
 type Rule = Record<string, unknown>
@@ -19,6 +20,10 @@ function App() {
   const [runtime, setRuntime] = useState<{session_id: string; current_player: string; legal_actions: string[]; players: {id: string; hand: {rank: string; suit: string}[]}[]; table: {rank: string; suit: string}[]; finished: boolean} | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [showConfig, setShowConfig] = useState(false)
+  const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1')
+  const [model, setModel] = useState('gpt-4o-mini')
 
   async function askAgent() {
     if (!input.trim() || busy) return
@@ -35,6 +40,18 @@ function App() {
       if (data.errors?.length) setError(data.errors.join('\n'))
       setInput('')
     } catch (err) { setError(err instanceof Error ? err.message : '请求失败') }
+    finally { setBusy(false) }
+  }
+
+  async function configureModel() {
+    if (!apiKey.trim() || busy) return
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(`${API}/api/agent/config`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_key: apiKey, base_url: baseUrl, model }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || '配置失败')
+      setApiKey(''); setShowConfig(false); setStatus(`模型已配置 · ${data.model}`)
+    } catch (err) { setError(err instanceof Error ? err.message : '配置失败') }
     finally { setBusy(false) }
   }
 
@@ -102,7 +119,8 @@ function App() {
   }
 
   return <main className="shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">♠</span><div><strong>Pocker Agent</strong><small>规则设计工作台</small></div></div><span className="status"><span className="dot" />{status}</span></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark">♠</span><div><strong>Pocker Agent</strong><small>规则设计工作台</small></div></div><div className="top-actions"><span className="status"><span className="dot" />{status}</span><button className="config-link" onClick={() => setShowConfig(!showConfig)}>模型设置</button></div></header>
+    {showConfig && <section className="config-panel"><div><span className="kicker">MODEL CONFIGURATION</span><h2>连接你的模型</h2><p>Key 仅发送到当前本机 API 服务，关闭页面后不会写入浏览器。</p></div><div className="config-fields"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="API Key" autoComplete="off" /><input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="Base URL" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="Model" /><button className="primary" onClick={configureModel} disabled={!apiKey.trim() || busy}>保存配置</button></div></section>}
     <section className="hero"><p className="eyebrow">GAME DESIGN LOOP</p><h1>把一句玩法想法，变成一局可玩的牌局。</h1><p className="lede">描述规则，和 Agent 一起补全细节。确认后运行模拟，检查每一步牌局状态。</p></section>
     <section className="workspace">
       <div className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / CLARIFY</span><h2>玩法对话</h2></div><Sparkles size={18} /></div><div className="thread">{turns.length === 0 && <div className="empty">从一句玩法描述开始。Agent 会追问玩家、牌组、动作和胜负条件。</div>}{turns.map((turn, index) => <div className={`bubble ${turn.role}`} key={index}><span>{turn.role === 'user' ? '你' : 'Agent'}</span><p>{turn.content}</p></div>)}</div><div className="composer"><textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) askAgent() }} placeholder="描述你想设计的扑克牌游戏…" /><button onClick={askAgent} disabled={busy || !input.trim()} title="发送"><Send size={17} /></button></div></div>
