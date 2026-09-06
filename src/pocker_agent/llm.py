@@ -32,19 +32,28 @@ class OpenAICompatibleClient:
     def complete(self, messages: list[dict[str, str]], *, response_format: dict[str, Any] | None = None) -> str:
         if not self.api_key:
             raise RuntimeError("missing_model_api_key: set POCKER_AGENT_API_KEY or OPENAI_API_KEY")
+        api_key = self.api_key.strip()
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key[7:].strip()
         payload: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": 0}
         if response_format:
             payload["response_format"] = response_format
         request = Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             method="POST",
         )
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
                 body = json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError) as error:
+        except HTTPError as error:
+            try:
+                detail = error.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                detail = ""
+            raise RuntimeError(f"model_request_failed: HTTP {error.code} {detail}".strip()) from error
+        except (URLError, TimeoutError) as error:
             raise RuntimeError(f"model_request_failed: {error}") from error
         try:
             return body["choices"][0]["message"]["content"]
