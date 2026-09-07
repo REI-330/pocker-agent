@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import Field, TypeAdapter, model_validator
 
 from .models import DeckSpec, GameRuleDSL, PlayerSpec, StrictSpec
+from .plugin_schema import PluginRule
 
 
 class ExplicitPlayers(PlayerSpec):
@@ -108,9 +109,9 @@ def standard_deck(deck):
         raise ValueError("此玩法当前使用标准52张牌，花色S/H/D/C，一副，无大小王")
 
 
-PlayableRule = GameRuleDSL | ArithmeticRule | BlackjackRule | SheddingRule
+PlayableRule = GameRuleDSL | ArithmeticRule | BlackjackRule | SheddingRule | PluginRule
 RULE_ADAPTER = TypeAdapter(PlayableRule)
-RULE_MODELS = {"arithmetic": ArithmeticRule, "blackjack": BlackjackRule, "shedding": SheddingRule}
+RULE_MODELS = {"arithmetic": ArithmeticRule, "blackjack": BlackjackRule, "shedding": SheddingRule, "plugin": PluginRule}
 
 
 def parse_rule(payload):
@@ -126,6 +127,9 @@ def parse_rule(payload):
 
 def rule_facts(rules):
     """Player-facing terms derived from the actual executor configuration."""
+    if isinstance(rules, PluginRule):
+        return ["由Agent编写JavaScript游戏逻辑；以下为待你核对的行为合约", *rules.requirements,
+                "已通过固定案例和多种子模拟；自动测试不代表证明所有规则与边界均正确"]
     if isinstance(rules, ArithmeticRule):
         return [f"单人算式练习：每题{rules.card_count}张牌，目标{rules.target}，共{rules.max_rounds}题",
                 "每张牌恰好使用一次；允许括号和 " + "、".join(rules.operations),

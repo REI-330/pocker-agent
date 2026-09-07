@@ -17,7 +17,7 @@ export function GameTable({state, busy, canStart, start, act, refresh}: {
   act: (action: string, index: number, args?: ActionArguments) => void; refresh: () => void;
 }) {
   const [index, setIndex] = useState(0)
-  const finishLabels: Record<string,string> = {round_limit:'已完成约定轮数',deck_exhausted:'剩余牌不足以开始下一轮',no_legal_actions:'规则没有可执行动作',hand_empty:'已出完所有手牌',all_blocked:'所有玩家均无法继续，按约定规则结算'}
+  const finishLabels: Record<string,string> = {generated_rule:'按生成的游戏规则完成结算',round_limit:'已完成约定轮数',deck_exhausted:'剩余牌不足以开始下一轮',no_legal_actions:'规则没有可执行动作',hand_empty:'已出完所有手牌',all_blocked:'所有玩家均无法继续，按约定规则结算'}
   return <section className="panel runtime">
     <div className="panel-head"><div><span className="kicker">04 / PLAY</span><h2>单人试玩</h2></div>
       <span className="pill">{state ? (state.finished ? '本局结束' : '第 ' + state.round + ' / ' + state.max_rounds + ' 轮') : '等待规则确认'}</span>
@@ -29,7 +29,7 @@ export function GameTable({state, busy, canStart, start, act, refresh}: {
       {state.active_suit && <p className="runtime-caption">当前要跟的花色：{{S:'黑桃 ♠',H:'红桃 ♥',D:'方块 ♦',C:'梅花 ♣'}[state.active_suit] || state.active_suit}</p>}
       {state.kind !== 'blackjack' && <div className="table"><div className="table-label">桌面</div>{state.table.length ? state.table.map((c,i) => <PlayingCard key={i + c.rank + c.suit} card={c} />) : <span className="muted">等待出牌</span>}</div>}
       <div className="hands">{state.players.map(p => <div className="hand" key={p.id}><strong>{p.label || (p.id === 'player-1' ? '你' : p.id + ' · 电脑')} · {p.score} 分{p.total != null ? ' · '+p.total+'点' : ''}</strong>
-        <div className="hand-cards">{p.hand.map((c,i) => p.id === 'player-1' && !state.finished && state.kind !== 'blackjack' ?
+        <div className="hand-cards">{p.hand.map((c,i) => p.id === 'player-1' && !state.finished && state.kind !== 'blackjack' && state.kind !== 'plugin' ?
           <button className={'card-choice ' + (index === i ? 'selected' : '')} aria-label={'选择手牌 ' + (i+1) + ' ' + c.rank + c.suit} aria-pressed={index === i} key={i+c.rank+c.suit} onClick={() => setIndex(i)} disabled={busy || (!!state.legal_card_indices && !state.legal_card_indices.includes(i))} title={state.legal_card_indices && !state.legal_card_indices.includes(i) ? '不符合当前出牌条件' : undefined}><PlayingCard card={c} /></button> :
           <PlayingCard card={c} key={i+c.rank+c.suit} />)}{!!p.hidden_count && <span className="card-back" aria-label={p.hidden_count+'张隐藏手牌'}>♠<small>{p.hidden_count} 张</small></span>}</div>
       </div>)}</div>

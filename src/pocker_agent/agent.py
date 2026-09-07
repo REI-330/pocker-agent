@@ -7,9 +7,11 @@ from typing import Any
 
 from .llm import ModelClient
 from .models import GameRuleDSL
-from .game_rules import PlayableRule, RULE_ADAPTER, RULE_MODELS, rule_facts
+from .game_rules import PlayableRule, RULE_MODELS, rule_facts
 from .executors import create_engine
 from .validation import validate_dsl
+from .plugin_builder import build_program
+from .model_json import parse_object
 
 CONTRACT = """
 你是 Pocker Agent 的规则设计助手，只返回有效 json 对象。
@@ -25,8 +27,10 @@ CONTRACT = """
    支持2到4人，先出完者赢，max_rounds=1。引擎固定在发手牌后翻出一张非万能牌作为桌面起始牌，因此初始顶牌不是8的要求完全支持，不需要另加字段。
    draw_policy=until_playable：有合法牌必须出，没有时一直摸到能出为止；不能摸时跳过。
    recycle_discard决定牌堆耗尽是否回收弃牌（保留顶牌）；全员无法行动时blocked_result=draw或fewest_cards。其他人的手牌隐藏。
-不支持：斗地主/跑得快的组合牌型压制、德州扑克下注与牌型、桥牌/升级跟花色争墩、抽乌龟抽取对手手牌、复杂特殊牌效果。返回unsupported，列出缺少机制，不得生成同名简化版。
-用户要求不支持的规则时，返回 {"type":"unsupported","message":"说明缺少的机制","missing":["..."]}，不可擅自删减。只有用户明确同意简化后才生成简化规则。
+以上内置DSL不支持的回合制纸牌玩法（包括抽乌龟抽对手牌、消除对子等），可以调用代码生成工具。
+用户规则明确且需要新的执行逻辑时，返回 {"type":"code","message":"需要生成新的游戏逻辑"}，由独立编码和测试流程实现。不要在本次回复写代码或假装已经实现。
+规则缺失时先question。确实超出通用牌桌、合法动作按钮及2到4人单局协议，例如多人联网、实时操作或外部服务，才返回 {"type":"unsupported","message":"具体缺少机制","missing":["..."]}。
+不得把复杂玩法擅自简化或用同名比大小替代；只有用户明确同意后才简化。
 缺少胜负、玩家数、初始手牌、轮数、牌强度等重要信息时，用一次简短 question 集中澄清。
 question 格式：{"type":"question","question":"...","missing":["..."]}。
 信息完整时：{"type":"proposal","summary":"中文准确复述所有规则","rules":<DSL>}。
@@ -52,6 +56,7 @@ class AgentTurn:
     rules: PlayableRule | None = None
     missing: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    build: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -62,11 +67,16 @@ class AgentSession:
 
 
 class RuleAgent:
-    def __init__(self, model: ModelClient):
+    def __init__(self, model: ModelClient, progress=lambda message: None):
         self.model = model
+        self.progress = progress
 
     def turn(self, session, user_text):
         session.messages.append({"role": "user", "content": user_text})
+        self.progress("理解玩法与选择实现路径")
+        code_request = re.sub(r"(?:不要|不需|不必|禁止)\s*(?:使用代码生成|用代码生成|自己编写代码)", "", user_text)
+        if re.search(r"使用代码生成|用代码生成|自己编写代码", code_request):
+            return self._build(session)
         expected = self._expected_family(user_text)
         schema_family = expected
         if not schema_family and "比大小" in user_text:
@@ -76,8 +86,10 @@ class RuleAgent:
         messages = [{"role": "system", "content": self._system_prompt(schema_family)}]
         if session.proposal:
             messages.append({"role": "user", "content": "当前规则草案：" + json.dumps(session.proposal, ensure_ascii=False)})
-        raw = self.model.complete(messages + session.messages, response_format={"type": "json_object"})
+        raw = self.model.complete(messages + session.messages)
         result = self._parse_json(raw)
+        if result.get("type") == "code":
+            return self._build(session)
         if result.get("type") == "unsupported":
             message = result.get("message")
             if not isinstance(message, str) or not message.strip():
@@ -117,6 +129,20 @@ class RuleAgent:
         session.messages.append({"role": "assistant", "content": json.dumps({"summary": summary, "rules": session.proposal}, ensure_ascii=False)})
         return AgentTurn("proposal", summary, rules)
 
+    def _build(self, session):
+        result, attempts = build_program(self.model, session.messages, session.proposal, self.progress)
+        kind = result.get("type")
+        if kind == "proposal":
+            rules = result["rules"]
+            session.proposal = rules.model_dump(mode="json")
+            message = "游戏代码已生成并通过测试，请核对规则：\n" + "\n".join(rule_facts(rules))
+            session.messages.append({"role": "assistant", "content": message})
+            return AgentTurn("proposal", message, rules, build=attempts)
+        message = result.get("question") or result.get("message") or "生成失败，未提供可玩版本"
+        session.messages.append({"role": "assistant", "content": message})
+        return AgentTurn(kind if kind in {"question", "unsupported"} else "error", message,
+                         errors=result.get("errors", []), build=attempts)
+
     def confirm(self, session):
         if not session.proposal:
             return AgentTurn("error", "还没有可以确认的规则。", errors=["proposal_missing"])
@@ -131,7 +157,7 @@ class RuleAgent:
             raw = self.model.complete([
                 {"role": "system", "content": self._system_prompt(family) + "修复下列 DSL 的结构错误，只返回 rules json 对象，保持用户规则含义。"},
                 {"role": "user", "content": json.dumps({"rules": proposal, "errors": errors, "user_requirements": conversation or []}, ensure_ascii=False)},
-            ], response_format={"type": "json_object"})
+            ])
             repaired = self._parse_json(raw)
             candidate = repaired.get("rules", repaired)
             return (candidate, None) if isinstance(candidate, dict) else (None, "repair_output_not_object")
@@ -140,33 +166,26 @@ class RuleAgent:
 
     @staticmethod
     def _parse_json(raw):
-        if not isinstance(raw, str):
-            raise RuntimeError("model_output_not_text")
-        text = raw.strip()
-        fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
-        if fenced:
-            text = fenced.group(1)
-        try:
-            value = json.loads(text)
-        except json.JSONDecodeError as error:
-            raise RuntimeError("model_output_invalid_json") from error
-        if not isinstance(value, dict):
-            raise RuntimeError("model_output_not_object")
-        return value
+        return parse_object(raw)
 
     @staticmethod
     def _system_prompt(family=None):
         # A clear mechanism needs only its own contract; avoid growing every request
         # with every engine family. Ambiguous requests still see all capabilities.
+        # Source code is produced by the builder, never by the DSL router.
         schema = (GameRuleDSL.model_json_schema() if family == "legacy" else
-                  RULE_MODELS[family].model_json_schema() if family in RULE_MODELS else RULE_ADAPTER.json_schema())
+                  RULE_MODELS[family].model_json_schema() if family in RULE_MODELS and family != "plugin" else
+                  {"anyOf": [GameRuleDSL.model_json_schema(), *[m.model_json_schema() for k,m in RULE_MODELS.items() if k != "plugin"]]})
         return CONTRACT + "\nDSL JSON Schema:\n" + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
     def _expected_family(text):
         # Narrow fail-closed checks for unmistakable mechanisms, not a template generator.
         text = re.sub(r"(?:不做|不要|不玩|不是|别做|别玩)(?:改成)?\s*(?:24\s*点|二十四点|21\s*点|二十一点|疯狂八|blackjack|crazy\s*eights)", "", text, flags=re.I)
-        if re.search(r"24\s*点|二十四点|四则运算|算式", text): return "arithmetic"
-        if re.search(r"21\s*点|二十一点|blackjack", text, re.I): return "blackjack"
-        if re.search(r"疯狂八|crazy\s*eights", text, re.I): return "shedding"
+        if re.search(r"24\s*点|二十四点|四则运算|算式", text):
+            return "arithmetic"
+        if re.search(r"21\s*点|二十一点|blackjack", text, re.I):
+            return "blackjack"
+        if re.search(r"疯狂八|crazy\s*eights", text, re.I):
+            return "shedding"
         return None

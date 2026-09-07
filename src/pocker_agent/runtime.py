@@ -99,7 +99,7 @@ def snapshot(session):
     }
     if hasattr(session.engine, "view"):
         result.update(session.engine.view())
-        if result.get("kind") in {"blackjack", "shedding"} and not state.finished:
+        if result.get("kind") in {"blackjack", "shedding", "plugin"} and not state.finished:
             # A seed would let a client reconstruct private hands and the remaining deck.
             result.pop("seed", None)
     return result

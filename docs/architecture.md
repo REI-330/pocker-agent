@@ -10,6 +10,10 @@ FastAPI：
 - configuration.py：校验、规范化 URL、正式配置快照；SQLite 元数据 + keyring 系统凭据。
 - llm.py：复用 OpenAI Python SDK 的网络、鉴权与错误处理；服务地址、模型没有白名单。
 - agent.py：完整 JSON Schema + 明确 DSL 执行语义；澄清、生成和修复。
+- plugin_builder.py / plugin_schema.py：新增代码生成路径，先确定合约和测试，再写代码及自动修复。
+- plugin_sandbox.py / plugin_worker.py：资源受限的QuickJS子进程执行，主进程校验JSON结果。
+- plugin_engine.py：生成逻辑与既有运行时、模拟、隐藏视图及恢复协议的适配。
+- build_jobs.py：有容量限制的后台生成任务与阶段进度。
 - models.py / validation.py：严格模型、引用验证和边界。
 - game_rules.py：v0.2 可执行规则族、明确的玩家配置、从执行配置生成中文规则条款。
 - executors.py：运行时和模拟共享的引擎选择及恢复入口。
@@ -28,4 +32,5 @@ FastAPI：
 新版动作请求增加 expression / declared_suit。非法动作在状态副本上失败，不写回原会话。21点和接牌的公开视图隐藏对手牌、暗牌总点数及可推导牌序的seed；内部存储保留完整状态。新规则族目前通过本机Web执行，离线有限决策树导出仅适用于v0.1。
 
 配置 GET 不返回 Key。发现模型 / 测试连接不修改已保存状态。每次 Agent 请求取得完整不可变配置快照。
+代码生成详情及验证边界见 [生成游戏协议](generated-game-protocol.md)。此路径的中文条款是模型制定的待确认合约，不能像内置DSL条款一样被视作由代码反向推导的全部语义。
 持久化目录默认位于 Windows 本地应用数据目录，排除于仓库之外。当前仅支持本机单用户单进程部署。

@@ -4,8 +4,9 @@ from copy import deepcopy
 from .engine import RuleEngine
 from .family_engines import ArithmeticEngine, BlackjackEngine, SheddingEngine, restore_state
 from .game_rules import parse_rule
+from .plugin_engine import PluginEngine
 
-FAMILIES = {"arithmetic": ArithmeticEngine, "blackjack": BlackjackEngine, "shedding": SheddingEngine}
+FAMILIES = {"arithmetic": ArithmeticEngine, "blackjack": BlackjackEngine, "shedding": SheddingEngine, "plugin": PluginEngine}
 
 
 def create_engine(rules, seed=0, player_count=None):

@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -20,6 +20,7 @@ from .runtime import RuntimeStore, export_package, snapshot
 from .simulation import simulate
 from .storage import data_path
 from .validation import validate_dsl
+from .build_jobs import BuildJobs
 
 
 class Message(BaseModel):
@@ -52,6 +53,7 @@ def create_app(path: Path | None = None, vault=None):
     path = path or data_path()
     config = ConfigStore(path, vault)
     runtime = RuntimeStore(path)
+    builds = BuildJobs()
     app.state.config_store = config
     app.state.runtime_store = runtime
     app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "assets"), name="assets")
@@ -108,15 +110,28 @@ def create_app(path: Path | None = None, vault=None):
         result = OpenAICompatibleClient.from_config(draft).complete([{"role": "user", "content": "Reply with OK."}])
         return {"ok": bool(result), "model": draft.model, "base_url": draft.base_url}
 
-    @app.post("/api/agent/turn")
-    def turn(payload: TurnInput):
+    def generate(payload: TurnInput, client, progress=lambda message: None):
         if not payload.message.strip():
             raise ValueError("请输入玩法")
         session = AgentSession([m.model_dump() for m in payload.messages], payload.proposal)
-        result = RuleAgent(model_client()).turn(session, payload.message)
+        result = RuleAgent(client, progress).turn(session, payload.message)
         return {"kind": result.kind, "message": result.message, "missing": result.missing,
                 "errors": result.errors, "rules": result.rules.model_dump(mode="json") if result.rules else None,
-                "messages": session.messages, "facts": rule_facts(result.rules) if result.rules else []}
+                "messages": session.messages, "facts": rule_facts(result.rules) if result.rules else [], "build": result.build}
+
+    @app.post("/api/agent/turn")
+    def turn(payload: TurnInput):
+        return generate(payload, model_client())
+
+    @app.post("/api/agent/jobs")
+    def start_build(payload: TurnInput):
+        client = model_client()
+        client.timeout_seconds = 180
+        return builds.start(lambda progress: generate(payload, client, progress))
+
+    @app.get("/api/agent/jobs/{job_id}")
+    def get_build(job_id: str):
+        return builds.get(job_id)
 
     @app.post("/api/agent/confirm")
     def confirm(payload: ConfirmInput):

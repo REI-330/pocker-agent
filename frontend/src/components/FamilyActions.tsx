@@ -11,6 +11,9 @@ export function FamilyActions({state, busy, index, act}: {
   const [expression, setExpression] = useState('')
   const [suit, setSuit] = useState('S')
   const arithmetic = state.legal_actions.includes('submit_expression')
+  if (state.kind === 'plugin') return <div className="game-controls"><div className="actions">{state.plugin_actions?.map(action =>
+    <button className="primary" key={action.id} disabled={busy} onClick={() => act(action.id,0)}
+      aria-label={action.label}>{action.target_player != null ? '🂠 ' : ''}{action.label}</button>)}</div></div>
   return <div className="game-controls">
     {arithmetic && <form className="expression-form" onSubmit={e => {e.preventDefault(); if (!busy && expression.trim()) act('submit_expression',0,{expression})}}>
       <label htmlFor="expression">输入算式</label>

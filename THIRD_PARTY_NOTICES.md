@@ -2,6 +2,8 @@
 
 ## Reused in the application
 
+- quickjs-ng Python wrapper 0.16.2.1: https://github.com/genotrance/quickjs-ng — MIT, copyright Ganesh Viswanathan (2026), verified from the installed distribution LICENSE. Provides the JavaScript VM; host limits and protocol validation remain project code. Dependency license is included by its distribution.
+
 - OpenAI Python SDK: https://github.com/openai/openai-python — Apache-2.0. Replaces handwritten urllib transport/authentication; arbitrary compatible base_url and model remain supported. Version is pinned in uv.lock.
 - keyring: https://github.com/jaraco/keyring — MIT. Uses the Windows credential vault for API keys; metadata and game state remain in Python standard-library SQLite.
 - React / Vite / FastAPI / Pydantic: existing framework dependencies, resolved versions retained in lockfiles.

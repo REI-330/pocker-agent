@@ -7,8 +7,10 @@ import './styles.css'
 import './runtime.css'
 import './config.css'
 
-type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null; facts: string[]}
-const EMPTY: Workbench = {turns:[],messages:[],proposal:null,confirmed:false,events:[],runtimeId:null,facts:[]}
+type TurnResult = {kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[];facts:string[];build?:{attempt:number;status:string;error?:string;checks?:string[]}[]}
+type BuildJob = {id:string;status:string;progress:{message:string;time:number}[];result:TurnResult|null;error:string|null}
+type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null; facts: string[]; pending: {id:string;content:string}|null; buildLog:string[]}
+const EMPTY: Workbench = {turns:[],messages:[],proposal:null,confirmed:false,events:[],runtimeId:null,facts:[],pending:null,buildLog:[]}
 const STORAGE_KEY = 'pocker-workbench-v2'
 function restore(): {work: Workbench; error: string} {
   try {
@@ -21,14 +23,15 @@ function restore(): {work: Workbench; error: string} {
 function App() {
   const [initial] = useState(restore)
   const [work, setWork] = useState(initial.work)
-  const [input,setInput] = useState(initial.work.turns.length ? '' : '我想做一个两人比大小游戏，每人一张牌，翻开后点数高的人获胜。')
+  const [input,setInput] = useState(initial.work.pending?.content ?? (initial.work.turns.length ? '' : '我想做一个两人比大小游戏，每人一张牌，翻开后点数高的人获胜。'))
   const [runtime,setRuntime] = useState<Runtime | null>(null)
-  const [busy,setBusy] = useState(initial.work.runtimeId ? '恢复牌局' : '')
+  const [busy,setBusy] = useState(initial.work.pending ? '恢复生成任务' : initial.work.runtimeId ? '恢复牌局' : '')
   const [error,setError] = useState(initial.error)
   const [status,setStatus] = useState('描述玩法，开始设计')
   const [showConfig,setShowConfig] = useState(true)
   const [modelConfig,setModelConfig] = useState<ModelConfig | null>(null)
   const [configBlocked,setConfigBlocked] = useState(true)
+  const blocked = !!busy || !!work.pending
   const onSaved = useCallback((data: ModelConfig) => setModelConfig(data), [])
 
   useEffect(() => {
@@ -36,7 +39,7 @@ function App() {
     catch { setError('浏览器无法保存草稿；请允许此站点使用本机存储') }
   }, [work])
   useEffect(() => {
-    if (!initial.work.runtimeId) return
+    if (!initial.work.runtimeId || initial.work.pending) return
     let active = true
     request<Runtime>('/api/runtime/sessions/' + initial.work.runtimeId)
       .then(data => { if (active) {setRuntime(data);setStatus('已恢复上次牌局')} })
@@ -45,8 +48,53 @@ function App() {
     return () => {active = false}
   }, [initial])
 
+  useEffect(() => {
+    if (!work.pending) return
+    const pending = work.pending
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    async function poll() {
+      try {
+        const job = await request<BuildJob>('/api/agent/jobs/' + pending.id)
+        if (!active) return
+        const log = job.progress.map(p=>p.message)
+        setWork(current=>({...current,buildLog:log}))
+        if (job.status === 'running') {
+          setBusy(log[log.length-1] || '生成游戏')
+          timer = setTimeout(()=>void poll(),1000)
+          return
+        }
+        if (job.status === 'failed' || !job.result) {
+          setError(job.error || '生成任务失败')
+          setStatus('生成失败，可修改规则或重试')
+          setWork(current=>({...current,pending:null}))
+        } else {
+          const data = job.result
+          const attemptLog = (data.build || []).map(a=>`第 ${a.attempt} 次代码：${a.status === 'passed' ? '测试通过' : a.error}`)
+          setWork(current=>({...current,turns:[...current.turns,{role:'user',content:pending.content},{role:'assistant',content:data.message}],
+            messages:data.messages,proposal:data.rules,confirmed:false,events:[],runtimeId:null,facts:data.facts || [],pending:null,buildLog:[...log,...attemptLog]}))
+          setRuntime(null);setInput('')
+          if(data.kind === 'error') setError([data.message,...data.errors].join('\n'))
+          setStatus(data.kind === 'question' ? '等待补充规则' : data.kind === 'unsupported' ? '当前实现协议尚不支持' : data.kind === 'error' ? '生成未通过测试' : '规则已生成，请确认')
+        }
+        setBusy('')
+      } catch(err) {
+        if (!active) return
+        setError(messageOf(err))
+        if(messageOf(err).includes('生成任务已失效')) {
+          setWork(current=>({...current,pending:null}));setBusy('');return
+        }
+        // Keep the task ID on transport failure; refreshing can resume polling.
+        setBusy('等待生成任务连接恢复')
+        timer = setTimeout(()=>void poll(),3000)
+      }
+    }
+    void poll()
+    return ()=>{active=false;clearTimeout(timer)}
+  }, [work.pending?.id])
+
   async function operation(label: string, task: () => Promise<void>) {
-    if (busy) return
+    if (blocked) return
     setBusy(label);setError('')
     try { await task() } catch (err) {setError(messageOf(err))}
     finally {setBusy('')}
@@ -55,15 +103,11 @@ function App() {
     if (!input.trim() || !modelConfig?.configured || configBlocked) return
     void operation('生成规则', async () => {
       const content = input.trim()
-      const data = await request<{kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[];facts:string[]}>('/api/agent/turn', {
+      const job = await request<BuildJob>('/api/agent/jobs', {
         message: content, messages: work.messages, proposal: work.proposal,
       })
-      if (data.kind === 'error') throw new Error([data.message,...data.errors].join('\n'))
-      // Any rule conversation invalidates previous confirmation and derived game state.
-      setWork({...work,turns:[...work.turns,{role:'user',content},{role:'assistant',content:data.message}],
-        messages:data.messages, proposal:data.rules, confirmed:false,events:[],runtimeId:null,facts:data.facts || []})
-      setRuntime(null);setInput('')
-      setStatus(data.kind === 'question' ? '等待补充规则' : data.kind === 'unsupported' ? '当前玩法尚缺少执行能力' : '规则已生成，请确认')
+      setWork({...work,pending:{id:job.id,content},buildLog:[]})
+      setStatus('生成任务已启动')
     })
   }
   function confirmRules() {
@@ -108,30 +152,32 @@ function App() {
       <div className="top-actions"><span className="status" role="status">{busy ? '正在' + busy + '…' : status}</span>
       <button className="config-link" onClick={() => setShowConfig(!showConfig)}>{showConfig ? '收起模型设置' : '模型设置'}</button></div>
     </header>
-    <div hidden={!showConfig}><ModelSettings onSaved={onSaved} onBlockedChange={setConfigBlocked} disabled={!!busy} /></div>
+    <div hidden={!showConfig}><ModelSettings onSaved={onSaved} onBlockedChange={setConfigBlocked} disabled={blocked} /></div>
     {error && <div className="error" role="alert"><pre>{error}</pre></div>}
     <section className="hero"><p className="eyebrow">FROM IDEA TO PLAY</p><h1>写下规则。<br/>开始一局。</h1><p className="lede">和 Agent 一起补全玩法，确认规则，查看模拟，再与电脑试玩。</p>
-      <p className="support-note">描述24点算式练习、无下注21点、疯狂八接牌，或组合已有的摸牌、出牌和计分规则。规则变体会先与你确认。</p></section>
+      <p className="support-note">已有玩法复用规则引擎。代码生成仍在实验阶段：Agent 编写新玩法逻辑，测试通过后才提供试玩，可能生成失败。</p></section>
     <section className="workspace">
-      <section className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / DESIGN</span><h2>玩法对话</h2></div><button className="secondary" disabled={!!busy} onClick={() => {setWork(EMPTY);setRuntime(null);setError('');setStatus('已开始新的设计')}}>新建游戏</button></div>
+      <section className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / DESIGN</span><h2>玩法对话</h2></div><button className="secondary" disabled={blocked} onClick={() => {setWork(EMPTY);setRuntime(null);setError('');setStatus('已开始新的设计')}}>新建游戏</button></div>
         <div className="thread">{!work.turns.length && <p className="empty">例如：两人比大小，使用标准 52 张牌，A 最大。每轮各出一张，最高牌得 1 分，平局各得 1 分，共 3 轮。</p>}
           {work.turns.map((turn,i) => <div className={'bubble ' + turn.role} key={i}><span>{turn.role === 'user' ? '你' : 'Agent'}</span><p>{turn.content}</p></div>)}
         </div>
-        <div className="composer"><textarea aria-label="玩法描述" value={input} onChange={e => setInput(e.target.value)} disabled={!!busy} placeholder="描述规则或回答 Agent 的问题…" /><button onClick={ask} disabled={!!busy || configBlocked || !input.trim() || !modelConfig?.configured}>发送</button></div>
+        <div className="composer"><textarea aria-label="玩法描述" value={input} onChange={e => setInput(e.target.value)} disabled={blocked} placeholder="描述规则或回答 Agent 的问题…" /><button onClick={ask} disabled={blocked || configBlocked || !input.trim() || !modelConfig?.configured}>发送</button></div>
+        {!!work.buildLog.length && <details open={!!work.pending} className="build-progress"><summary>{work.pending ? '游戏生成进度' : '查看生成与测试记录'}</summary><ol>{work.buildLog.map((line,i)=><li key={i}>{line}</li>)}</ol></details>}
         {!modelConfig?.configured && <p className="support-note">请先在模型设置中保存配置。</p>}
         {modelConfig?.configured && configBlocked && <p className="support-note">模型配置正在处理或有未保存的修改，请在模型设置中完成保存或撤销。</p>}
       </section>
       <section className="panel rules"><div className="panel-head"><div><span className="kicker">02 / RULES</span><h2>规则提案</h2></div><span className="pill">{work.confirmed ? '已确认' : '待确认'}</span></div>
         {work.proposal ? <><div className="rule-summary"><h3>{work.proposal.title}</h3><p>{work.proposal.players.min_players} 位玩家 · {work.proposal.max_rounds} 轮</p><ul className="rule-facts">{work.facts.map((fact,i)=><li key={i}>{fact}</li>)}</ul></div>
         <details><summary>查看完整规则 DSL</summary><pre className="dsl">{JSON.stringify(work.proposal,null,2)}</pre></details>
-        <div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={!!busy || work.confirmed}>确认规则</button><button className="secondary" onClick={simulate} disabled={!!busy || !work.confirmed}>运行模拟</button></div></> : <div className="empty tall">确认玩法细节后，这里会出现规则提案。</div>}
+        {work.proposal.source && <details><summary>查看 Agent 编写的游戏代码</summary><pre className="dsl">{work.proposal.source}</pre></details>}
+        <div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={blocked || work.confirmed}>确认规则</button><button className="secondary" onClick={simulate} disabled={blocked || !work.confirmed}>运行模拟</button></div></> : <div className="empty tall">确认玩法细节后，这里会出现规则提案。</div>}
       </section>
       <section className="panel trace"><div className="panel-head"><div><span className="kicker">03 / VERIFY</span><h2>模拟轨迹</h2></div><span className="pill">{work.events.length} 个事件</span></div>
         {work.events.length ? <div className="events">{work.events.map((event,i) => <div className="event" key={i}><span className="event-index">{i+1}</span><div><strong>{String(event.event)} · 第 {String(event.round)} 轮</strong><code>{JSON.stringify(event)}</code></div></div>)}</div> : <p className="empty tall">运行模拟检查发牌、电脑动作、轮次计分和结果。</p>}
       </section>
-      <GameTable state={runtime} busy={!!busy} canStart={work.confirmed} start={start} act={act} refresh={refresh}/>
+      <GameTable state={runtime} busy={blocked} canStart={work.confirmed} start={start} act={act} refresh={refresh}/>
       <section className="export-bar"><div><span className="kicker">05 / TAKE IT WITH YOU</span><h2>把这局游戏带走</h2><p>{work.proposal?.kind ? '当前玩法支持网页试玩和保存恢复，离线导出尚未支持。' : '解压后打开 index.html 离线游玩。练习局固定发牌，无需 API Key。'}</p></div>
-        <button className="primary" disabled={!!busy || !work.confirmed || !!work.proposal?.kind} onClick={() => void operation('导出游戏',async () => {await downloadGame(work.proposal!);setStatus('游戏包已下载，解压后打开 index.html')})}>下载游戏包</button>
+        <button className="primary" disabled={blocked || !work.confirmed || !!work.proposal?.kind} onClick={() => void operation('导出游戏',async () => {await downloadGame(work.proposal!);setStatus('游戏包已下载，解压后打开 index.html')})}>下载游戏包</button>
       </section>
     </section>
     <footer>牌面素材：<a href="https://github.com/hayeah/playing-cards-assets" target="_blank" rel="noreferrer">Playing Cards Assets</a> · <a href={API + '/assets/cards/LICENSE'}>MIT License</a></footer>
