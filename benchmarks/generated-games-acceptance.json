@@ -1,0 +1,55 @@
+{
+  "model": "deepseek-v4-flash",
+  "game": "2-player old maid; remove QS; same-rank pairs; 51 cards",
+  "source_sha256": "059522c3e9beb909f7e8c207997f18e0f36c166ec34c850733d21fe1594aeb2f",
+  "generated_code": true,
+  "independent_seed_checks": [
+    {
+      "seed": 2,
+      "moves": 9,
+      "winner": 1
+    },
+    {
+      "seed": 11,
+      "moves": 7,
+      "winner": 1
+    },
+    {
+      "seed": 41,
+      "moves": 4,
+      "winner": 0
+    },
+    {
+      "seed": 89,
+      "moves": 9,
+      "winner": 1
+    },
+    {
+      "seed": 133,
+      "moves": 10,
+      "winner": 0
+    }
+  ],
+  "browser_full_game": {
+    "completed": true,
+    "events": 7,
+    "human_clicks": 3,
+    "remaining_card": "QC",
+    "winner": "player-2",
+    "scores": [
+      0,
+      1
+    ],
+    "refresh_restored": true
+  },
+  "metadata_correction": {
+    "source_unchanged": true,
+    "scenarios_unchanged": true,
+    "revalidated": true
+  },
+  "limitations": [
+    "One accepted generated game, not a general success-rate measurement",
+    "Same-color variant not yet accepted",
+    "Other complex games not validated; Web only"
+  ]
+}

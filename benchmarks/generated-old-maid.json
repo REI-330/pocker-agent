@@ -1,0 +1,191 @@
+{
+  "provenance": "Real deepseek-v4-flash browser generation; acceptance fixture only, never a production template",
+  "rules": {
+    "game_id": "two_player_old_maid_qs",
+    "title": "两人抽乌龟（去黑桃Q）",
+    "description": "标准52张牌去掉黑桃Q，两人轮流从对方隐藏手牌中抽牌，自动消除同点数对子，最后剩一张Q（不限定花色）者输，空手者胜。",
+    "deck": {
+      "suits": [
+        "S",
+        "H",
+        "D",
+        "C"
+      ],
+      "ranks": [
+        "A",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "J",
+        "Q",
+        "K"
+      ],
+      "copies": 1
+    },
+    "excluded_cards": [
+      "QS"
+    ],
+    "players": {
+      "min_players": 2,
+      "max_players": 2,
+      "starting_hand_size": 0
+    },
+    "max_rounds": 1,
+    "requirements": [
+      "使用标准52张扑克牌，去掉黑桃Q后共51张，洗牌后从玩家0开始依次轮流将全部牌发完。",
+      "开局以及每次抽牌后，自动消除当前玩家手牌中所有同点数对子（不要求花色，四张同点数消除两对），被消除的牌进入弃牌堆。",
+      "玩家0先行动，从对手隐藏手牌中选择一个具体位置抽一张牌；抽牌后若产生对子则立即消除，然后交替行动权。",
+      "对手的手牌以牌背显示，动作标签/按钮不得透露牌面内容，但必须能区分对手手牌的不同位置。",
+      "若某玩家手中无牌且对方仅剩一张Q（不限定花色），则空手者获胜，得1分；持Q者失败；游戏结束。",
+      "整局只进行一轮，无下注、无计时。"
+    ],
+    "scenarios": [
+      {
+        "name": "抽牌消除对子并转换回合",
+        "state": {
+          "hands": [
+            [
+              "2H",
+              "QD",
+              "3C"
+            ],
+            [
+              "2D",
+              "3D"
+            ]
+          ],
+          "deck": [],
+          "discard": [],
+          "current_player": 0,
+          "finished": false,
+          "winners": [],
+          "scores": [
+            0,
+            0
+          ],
+          "phase": "playing",
+          "data": {}
+        },
+        "action_id": "draw_1_0",
+        "expected": {
+          "hands.0": [
+            "QD",
+            "3C"
+          ],
+          "hands.1": [
+            "3D"
+          ],
+          "current_player": 1,
+          "finished": false,
+          "winners": [],
+          "scores": [
+            0,
+            0
+          ],
+          "discard": [
+            "2H",
+            "2D"
+          ]
+        }
+      },
+      {
+        "name": "抽牌后触发终局",
+        "state": {
+          "hands": [
+            [
+              "2H"
+            ],
+            [
+              "2D",
+              "QD"
+            ]
+          ],
+          "deck": [],
+          "discard": [],
+          "current_player": 0,
+          "finished": false,
+          "winners": [],
+          "scores": [
+            0,
+            0
+          ],
+          "phase": "playing",
+          "data": {}
+        },
+        "action_id": "draw_1_0",
+        "expected": {
+          "hands.0": [],
+          "hands.1": [
+            "QD"
+          ],
+          "finished": true,
+          "winners": [
+            0
+          ],
+          "scores": [
+            1,
+            0
+          ],
+          "current_player": 0,
+          "discard": [
+            "2H",
+            "2D"
+          ]
+        }
+      },
+      {
+        "name": "抽另一位置不消除继续",
+        "state": {
+          "hands": [
+            [
+              "2H"
+            ],
+            [
+              "2D",
+              "QD"
+            ]
+          ],
+          "deck": [],
+          "discard": [],
+          "current_player": 0,
+          "finished": false,
+          "winners": [],
+          "scores": [
+            0,
+            0
+          ],
+          "phase": "playing",
+          "data": {}
+        },
+        "action_id": "draw_1_1",
+        "expected": {
+          "hands.0": [
+            "2H",
+            "QD"
+          ],
+          "hands.1": [
+            "2D"
+          ],
+          "finished": false,
+          "winners": [],
+          "scores": [
+            0,
+            0
+          ],
+          "current_player": 1,
+          "discard": []
+        }
+      }
+    ],
+    "max_steps": 400,
+    "schema_version": "0.3",
+    "kind": "plugin",
+    "source": "(() => {\n  function getRank(cardId, cards) {\n    if (cards && cards[cardId] && cards[cardId].rank) return cards[cardId].rank;\n    const m = cardId.match(/^(10|[2-9AJQK])[SHDC]$/);\n    if (m) return m[1];\n    return null;\n  }\n\n  function eliminatePairs(hand, cards) {\n    const remaining = [];\n    const discarded = [];\n    const keptRank = new Map();\n    for (const card of hand) {\n      const r = getRank(card, cards);\n      if (r === null) { remaining.push(card); continue; }\n      if (keptRank.has(r)) {\n        const kept = keptRank.get(r);\n        keptRank.delete(r);\n        const idx = remaining.indexOf(kept);\n        if (idx !== -1) remaining.splice(idx, 1);\n        discarded.push(kept, card);\n      } else {\n        keptRank.set(r, card);\n        remaining.push(card);\n      }\n    }\n    return { hand: remaining, discarded };\n  }\n\n  function shuffleArray(arr, seed) {\n    let s = seed;\n    for (let i = arr.length - 1; i > 0; i--) {\n      s = (s * 1103515245 + 12345) % 2147483648;\n      const j = s % (i + 1);\n      [arr[i], arr[j]] = [arr[j], arr[i]];\n    }\n    return { arr, seed: s };\n  }\n\n  function parseActionId(id) {\n    const m = /^draw_(\\d+)_(\\d+)$/.exec(id);\n    if (m) return { target: parseInt(m[1], 10), index: parseInt(m[2], 10) };\n    throw new Error('bad action id ' + id);\n  }\n\n  function setup(deck, playerCount, cards) {\n    const hands = [[], []];\n    for (let i = 0; i < deck.length; i++) hands[i % 2].push(deck[i]);\n    let discard = [];\n    for (let p = 0; p < 2; p++) {\n      const { hand, discarded } = eliminatePairs(hands[p], cards);\n      hands[p] = hand;\n      discard = discard.concat(discarded);\n    }\n    let finished = false, winners = [], scores = [0,0];\n    if (hands[0].length === 0 || hands[1].length === 0) {\n      finished = true;\n      winners = hands[0].length === 0 ? [0] : [1];\n      scores[winners[0]] = 1;\n    }\n    return {\n      hands,\n      deck: [],\n      discard,\n      current_player: 0,\n      finished,\n      winners,\n      scores,\n      phase: 'playing',\n      data: { seed: 12345, initialDeal: true }\n    };\n  }\n\n  function actions(state, cards) {\n    if (state.finished) return [];\n    const current = state.current_player;\n    const opponent = 1 - current;\n    const oppHand = state.hands[opponent];\n    const acts = [];\n    for (let i = 0; i < oppHand.length; i++) {\n      acts.push({\n        id: `draw_${opponent}_${i}`,\n        label: `从玩家${opponent+1}手牌位置${i+1}抽牌`,\n        target_player: opponent,\n        card_index: i\n      });\n    }\n    return acts;\n  }\n\n  function step(state, action, cards) {\n    if (state.finished) return state;\n    const hands = state.hands.map(arr => arr.slice());\n    let discard = state.discard.slice();\n    const current = state.current_player;\n    const { target, index } = parseActionId(action.id);\n    if (target === current) return state;\n    const oppHand = hands[target];\n    if (index < 0 || index >= oppHand.length) return state;\n    const card = oppHand[index];\n    oppHand.splice(index, 1);\n    hands[current].push(card);\n\n    const { hand: newCurr, discarded: disc } = eliminatePairs(hands[current], cards);\n    hands[current] = newCurr;\n    discard = discard.concat(disc);\n\n    let seed = state.data && state.data.seed !== undefined ? state.data.seed : 12345;\n    if (oppHand.length > 1) {\n      const result = shuffleArray(oppHand, seed);\n      hands[target] = result.arr;\n      seed = result.seed;\n    }\n\n    let finished = false, winners = [], scores = state.scores.slice();\n    if (hands[0].length === 0 || hands[1].length === 0) {\n      finished = true;\n      winners = hands[0].length === 0 ? [0] : [1];\n      scores = [0,0];\n      scores[winners[0]] = 1;\n    }\n\n    const nextPlayer = finished ? current : (1 - current);\n    return {\n      hands,\n      deck: state.deck.slice(),\n      discard,\n      current_player: nextPlayer,\n      finished,\n      winners,\n      scores,\n      phase: finished ? 'finished' : 'playing',\n      data: { ...state.data, seed }\n    };\n  }\n\n  return { setup, actions, step };\n})()"
+  }
+}

@@ -135,7 +135,8 @@ class RuleAgent:
         if kind == "proposal":
             rules = result["rules"]
             session.proposal = rules.model_dump(mode="json")
-            message = "游戏代码已生成并通过测试，请核对规则：\n" + "\n".join(rule_facts(rules))
+            prefix = "游戏说明已更新，原源码和行为测试保持不变并重新验证通过，请核对：\n" if attempts and attempts[-1].get('reused_source') else "游戏代码已生成并通过测试，请核对规则：\n"
+            message = prefix + "\n".join(rule_facts(rules))
             session.messages.append({"role": "assistant", "content": message})
             return AgentTurn("proposal", message, rules, build=attempts)
         message = result.get("question") or result.get("message") or "生成失败，未提供可玩版本"

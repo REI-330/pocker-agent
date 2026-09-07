@@ -185,3 +185,27 @@ def test_stream_service_error_preserves_reason_and_redacts_key(monkeypatch):
     with pytest.raises(RuntimeError, match="service is busy") as caught:
         client.complete([{"role": "user", "content": "hello"}])
     assert "test-key" not in str(caught.value)
+
+
+@pytest.mark.parametrize("needs_new_parameter", [False, True])
+def test_output_limit_works_with_both_compatible_parameter_names(
+    monkeypatch, needs_new_parameter
+):
+    bodies = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        if needs_new_parameter and "max_tokens" in body:
+            return httpx2.Response(
+                400, json={"error": "max_tokens unsupported; use max_completion_tokens"}
+            )
+        name = "max_completion_tokens" if needs_new_parameter else "max_tokens"
+        assert body[name] == 12000
+        assert not ("max_tokens" in body and "max_completion_tokens" in body)
+        return httpx2.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+
+    client = client_for(monkeypatch, handler)
+    client.max_tokens = 12000
+    assert client.complete([{"role": "user", "content": "hello"}]) == "OK"
+    assert len(bodies) == (2 if needs_new_parameter else 1)

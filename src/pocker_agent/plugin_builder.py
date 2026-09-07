@@ -40,6 +40,9 @@ PLAN_PROMPT = (
     + """
 先制定行为合约和至少3个独立的规则测试，不要写源码。输出json：
 {"type":"plan","plan":<PluginPlan>}；有实质缺失则输出{"type":"question","question":"..."}。
+如果用户明确要求只修正文案、保持原源码及行为测试，可返回{"type":"plan","reuse_source":true,"plan":<PluginPlan>}。
+复用时只能修改title/description/requirements；其余所有字段包括game_id、scenarios、max_steps必须完整沿用旧程序。
+玩法机制或行为测试需要修改时不得使用reuse_source，仍须编写源码。
 真的超出上述运行协议则输出{"type":"unsupported","message":"具体原因"}。
 requirements完整复述用户确定的规则，每项一条；不能为了实现方便改变配对/抽牌/出局/胜负条件。
 scenarios是小牌局单步测试，先确定合法action_id，再明确expected的state字段路径和值。
@@ -108,7 +111,7 @@ def build_program(model, conversation, previous=None, progress=lambda message: N
     if isinstance(model, OpenAICompatibleClient):
         model.streaming = True
         model.reasoning_effort = model.reasoning_effort or "low"
-        model.max_completion_tokens = 12000
+        model.max_tokens = 12000
         model.on_notice = progress
         model.on_progress = lambda size: progress(f"正在接收模型输出：{size} 字符")
     progress("制定规则合约和行为测试")
@@ -129,6 +132,17 @@ def build_program(model, conversation, previous=None, progress=lambda message: N
                 return plan_result, []
             plan = PluginPlan.model_validate(plan_result.get("plan", plan_result))
             validate_scenarios(plan)
+            if plan_result.get("reuse_source") is True:
+                if not previous:
+                    raise ValueError("没有可复用的原程序")
+                original = PluginRule.model_validate(previous)
+                metadata = {"title", "description", "requirements"}
+                if original.model_dump(
+                    exclude=metadata | {"source", "kind", "schema_version"}
+                ) != plan.model_dump(exclude=metadata):
+                    raise ValueError(
+                        "复用源码时只能修改说明；必须保留全部原执行字段和固定测试，否则请取消reuse_source并编写新逻辑"
+                    )
             break
         except (RuntimeError, ValueError, KeyError, TypeError, IndexError) as error:
             if planning_attempt == 2:
@@ -144,6 +158,13 @@ def build_program(model, conversation, previous=None, progress=lambda message: N
                     },
                 ]
             )
+    if plan_result.get("reuse_source") is True:
+        progress("仅修正说明，复用原源码并重新验证固定测试与完整对局")
+        rule = PluginRule(**plan.model_dump(), source=original.source)
+        checks = accepted_program(rule.model_dump_json())
+        return {"type": "proposal", "rules": rule}, [
+            {"attempt": 1, "status": "passed", "reused_source": True, "checks": checks}
+        ]
     prompt = [
         {
             "role": "system",

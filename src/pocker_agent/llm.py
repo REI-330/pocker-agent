@@ -32,6 +32,7 @@ class OpenAICompatibleClient:
     streaming: bool = False
     reasoning_effort: str | None = None
     max_completion_tokens: int | None = None
+    max_tokens: int | None = None
     on_progress: Callable[[int], None] | None = field(default=None, repr=False)
     on_notice: Callable[[str], None] | None = field(default=None, repr=False)
 
@@ -95,6 +96,16 @@ class OpenAICompatibleClient:
             if (
                 isinstance(error, APIStatusError)
                 and error.status_code == 400
+                and self.max_tokens
+                and "max_tokens" in str(error.body)
+            ):
+                self.max_completion_tokens, self.max_tokens = self.max_tokens, None
+                if self.on_notice:
+                    self.on_notice("服务要求新版输出长度参数，保持同一上限重试")
+                return self.complete(messages, response_format=response_format)
+            if (
+                isinstance(error, APIStatusError)
+                and error.status_code == 400
                 and self.max_completion_tokens
                 and "max_completion_tokens" in str(error.body)
             ):
@@ -120,7 +131,9 @@ class OpenAICompatibleClient:
             messages=messages,
             stream=self.streaming,
             **(
-                {"max_completion_tokens": self.max_completion_tokens}
+                {"max_tokens": self.max_tokens}
+                if self.max_tokens
+                else {"max_completion_tokens": self.max_completion_tokens}
                 if self.max_completion_tokens
                 else {}
             ),

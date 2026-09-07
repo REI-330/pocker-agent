@@ -330,3 +330,37 @@ def test_existing_plugin_can_route_to_another_game():
     session = AgentSession(proposal=rule().model_dump(mode="json"))
     result = RuleAgent(Model()).turn(session, "不要使用代码生成，改玩24点")
     assert result.kind == "question" and "24点" in result.message
+
+
+def test_metadata_update_reuses_source_but_reruns_validation():
+    from pocker_agent.plugin_builder import build_program
+
+    updated = plan()
+    updated["description"] = "修正后的准确说明"
+
+    class Model:
+        def complete(self, messages, **kwargs):
+            return json.dumps({"type": "plan", "reuse_source": True, "plan": updated})
+
+    result, attempts = build_program(
+        Model(),
+        [{"role": "user", "content": "只改说明，保持代码和测试"}],
+        rule().model_dump(mode="json"),
+    )
+    assert result["rules"].source == SOURCE
+    assert result["rules"].description == updated["description"]
+    assert attempts[0]["reused_source"] is True and len(attempts[0]["checks"]) == 6
+
+
+def test_metadata_reuse_cannot_change_executable_contract():
+    from pocker_agent.plugin_builder import build_program
+
+    updated = plan()
+    updated["scenarios"][0]["expected"]["current_player"] = 0
+
+    class Model:
+        def complete(self, messages, **kwargs):
+            return json.dumps({"type": "plan", "reuse_source": True, "plan": updated})
+
+    with pytest.raises(ValueError, match="复用源码时只能修改说明"):
+        build_program(Model(), [], rule().model_dump(mode="json"))
