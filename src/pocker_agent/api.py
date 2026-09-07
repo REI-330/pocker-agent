@@ -14,7 +14,8 @@ from pydantic import BaseModel, Field
 from .agent import AgentSession, RuleAgent
 from .configuration import ConfigInput, ConfigStore
 from .llm import OpenAICompatibleClient
-from .models import GameRuleDSL
+from .game_rules import PlayableRule, rule_facts
+from .executors import create_engine
 from .runtime import RuntimeStore, export_package, snapshot
 from .simulation import simulate
 from .storage import data_path
@@ -40,6 +41,8 @@ class ConfirmInput(BaseModel):
 class ActionInput(BaseModel):
     revision: int = Field(ge=0)
     card_index: int = Field(default=0, ge=0)
+    expression: str = Field(default="", max_length=256)
+    declared_suit: str = Field(default="", max_length=16)
 
 
 def create_app(path: Path | None = None, vault=None):
@@ -113,14 +116,19 @@ def create_app(path: Path | None = None, vault=None):
         result = RuleAgent(model_client()).turn(session, payload.message)
         return {"kind": result.kind, "message": result.message, "missing": result.missing,
                 "errors": result.errors, "rules": result.rules.model_dump(mode="json") if result.rules else None,
-                "messages": session.messages}
+                "messages": session.messages, "facts": rule_facts(result.rules) if result.rules else []}
 
     @app.post("/api/agent/confirm")
     def confirm(payload: ConfirmInput):
         # Confirmation and gameplay validate the contract; they need no model or key.
         rules, errors = validate_dsl(payload.proposal)
+        if rules and not errors:
+            try:
+                create_engine(rules, seed=7).setup()
+            except (ValueError, RuntimeError) as error:
+                errors.append(str(error))
         return {"kind": "error" if errors else "confirmed", "errors": errors,
-                "rules": rules.model_dump(mode="json") if rules else None}
+                "rules": rules.model_dump(mode="json") if rules else None, "facts": rule_facts(rules) if rules else []}
 
     @app.post("/api/rules/validate")
     def validate(payload: dict):
@@ -128,12 +136,12 @@ def create_app(path: Path | None = None, vault=None):
         return {"valid": not errors, "errors": errors, "rules": rules.model_dump(mode="json") if rules else None}
 
     @app.post("/api/simulations")
-    def simulation(rules: GameRuleDSL, seed: int = 7, player_count: int | None = None):
+    def simulation(rules: PlayableRule, seed: int = 7, player_count: int | None = None):
         result = simulate(rules, seed=seed, player_count=player_count)
         return {"completed": result.completed, "winner": result.winner, "events": result.events}
 
     @app.post("/api/runtime/sessions")
-    def create_session(rules: GameRuleDSL, seed: int | None = None):
+    def create_session(rules: PlayableRule, seed: int | None = None):
         return snapshot(runtime.create(rules, seed))
 
     @app.get("/api/runtime/sessions/{session_id}")
@@ -142,10 +150,11 @@ def create_app(path: Path | None = None, vault=None):
 
     @app.post("/api/runtime/sessions/{session_id}/actions/{action}")
     def act(session_id: str, action: str, payload: ActionInput):
-        return runtime.act(session_id, action, payload.revision, payload.card_index)
+        return runtime.act(session_id, action, payload.revision, payload.card_index,
+                           expression=payload.expression, declared_suit=payload.declared_suit)
 
     @app.post("/api/games/export")
-    def export(rules: GameRuleDSL):
+    def export(rules: PlayableRule):
         content, filename = export_package(rules)
         return Response(content, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 

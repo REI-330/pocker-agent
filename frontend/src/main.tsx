@@ -1,14 +1,14 @@
 import React, {useCallback, useEffect, useState} from 'react'
 import {createRoot} from 'react-dom/client'
-import {API, request, downloadGame, messageOf, type Message, type Rule, type Runtime, type GameEvent, type ModelConfig} from './api'
+import {API, request, downloadGame, messageOf, type Message, type Rule, type Runtime, type GameEvent, type ModelConfig, type ActionArguments} from './api'
 import {ModelSettings} from './components/ModelSettings'
 import {GameTable} from './components/GameTable'
 import './styles.css'
 import './runtime.css'
 import './config.css'
 
-type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null}
-const EMPTY: Workbench = {turns:[],messages:[],proposal:null,confirmed:false,events:[],runtimeId:null}
+type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null; facts: string[]}
+const EMPTY: Workbench = {turns:[],messages:[],proposal:null,confirmed:false,events:[],runtimeId:null,facts:[]}
 const STORAGE_KEY = 'pocker-workbench-v2'
 function restore(): {work: Workbench; error: string} {
   try {
@@ -55,23 +55,23 @@ function App() {
     if (!input.trim() || !modelConfig?.configured || configBlocked) return
     void operation('生成规则', async () => {
       const content = input.trim()
-      const data = await request<{kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[]}>('/api/agent/turn', {
+      const data = await request<{kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[];facts:string[]}>('/api/agent/turn', {
         message: content, messages: work.messages, proposal: work.proposal,
       })
       if (data.kind === 'error') throw new Error([data.message,...data.errors].join('\n'))
       // Any rule conversation invalidates previous confirmation and derived game state.
       setWork({...work,turns:[...work.turns,{role:'user',content},{role:'assistant',content:data.message}],
-        messages:data.messages, proposal:data.rules, confirmed:false,events:[],runtimeId:null})
+        messages:data.messages, proposal:data.rules, confirmed:false,events:[],runtimeId:null,facts:data.facts || []})
       setRuntime(null);setInput('')
-      setStatus(data.kind === 'question' ? '等待补充规则' : '规则已生成，请确认')
+      setStatus(data.kind === 'question' ? '等待补充规则' : data.kind === 'unsupported' ? '当前玩法尚缺少执行能力' : '规则已生成，请确认')
     })
   }
   function confirmRules() {
     if (!work.proposal) return
     void operation('确认规则', async () => {
-      const data = await request<{kind:string;rules:Rule;errors:string[]}>('/api/agent/confirm',{proposal:work.proposal})
+      const data = await request<{kind:string;rules:Rule;errors:string[];facts:string[]}>('/api/agent/confirm',{proposal:work.proposal})
       if (data.kind !== 'confirmed') throw new Error(data.errors.join('\n'))
-      setWork({...work,proposal:data.rules,confirmed:true});setStatus('规则已确认')
+      setWork({...work,proposal:data.rules,confirmed:true,facts:data.facts});setStatus('规则已确认')
     })
   }
   function simulate() {
@@ -89,13 +89,13 @@ function App() {
       setRuntime(data);setWork({...work,runtimeId:data.session_id});setStatus(data.finished ? '本局已结束' : '轮到你出牌')
     })
   }
-  function act(action: string, cardIndex: number) {
+  function act(action: string, cardIndex: number, args: ActionArguments = {}) {
     if (!runtime || !work.confirmed) return
     void operation('执行回合', async () => {
       const data = await request<{state:Runtime}>('/api/runtime/sessions/' + runtime.session_id + '/actions/' + action,{
-        revision:runtime.revision,card_index:cardIndex,
+        revision:runtime.revision,card_index:cardIndex,...args,
       })
-      setRuntime(data.state);setStatus(data.state.finished ? '本局结束，可以再来一局' : '电脑已行动，轮到你')
+      setRuntime(data.state);setStatus(data.state.finished ? '本局结束，可以再来一局' : '等待你的下一步操作')
     })
   }
   function refresh() {
@@ -111,7 +111,7 @@ function App() {
     <div hidden={!showConfig}><ModelSettings onSaved={onSaved} onBlockedChange={setConfigBlocked} disabled={!!busy} /></div>
     {error && <div className="error" role="alert"><pre>{error}</pre></div>}
     <section className="hero"><p className="eyebrow">FROM IDEA TO PLAY</p><h1>写下规则。<br/>开始一局。</h1><p className="lede">和 Agent 一起补全玩法，确认规则，查看模拟，再与电脑试玩。</p>
-      <p className="support-note">Demo 支持比大小、摸牌、出牌、弃牌和逐轮计分。复杂牌型、下注和特殊效果会先提示能力限制。</p></section>
+      <p className="support-note">描述24点算式练习、无下注21点、疯狂八接牌，或组合已有的摸牌、出牌和计分规则。规则变体会先与你确认。</p></section>
     <section className="workspace">
       <section className="panel conversation"><div className="panel-head"><div><span className="kicker">01 / DESIGN</span><h2>玩法对话</h2></div><button className="secondary" disabled={!!busy} onClick={() => {setWork(EMPTY);setRuntime(null);setError('');setStatus('已开始新的设计')}}>新建游戏</button></div>
         <div className="thread">{!work.turns.length && <p className="empty">例如：两人比大小，使用标准 52 张牌，A 最大。每轮各出一张，最高牌得 1 分，平局各得 1 分，共 3 轮。</p>}
@@ -122,7 +122,7 @@ function App() {
         {modelConfig?.configured && configBlocked && <p className="support-note">模型配置正在处理或有未保存的修改，请在模型设置中完成保存或撤销。</p>}
       </section>
       <section className="panel rules"><div className="panel-head"><div><span className="kicker">02 / RULES</span><h2>规则提案</h2></div><span className="pill">{work.confirmed ? '已确认' : '待确认'}</span></div>
-        {work.proposal ? <><div className="rule-summary"><h3>{work.proposal.title}</h3><p>{work.proposal.description}</p><p>{work.proposal.players.min_players} 位玩家 · 每人 {work.proposal.players.starting_hand_size} 张牌 · {work.proposal.max_rounds} 轮</p></div>
+        {work.proposal ? <><div className="rule-summary"><h3>{work.proposal.title}</h3><p>{work.proposal.players.min_players} 位玩家 · {work.proposal.max_rounds} 轮</p><ul className="rule-facts">{work.facts.map((fact,i)=><li key={i}>{fact}</li>)}</ul></div>
         <details><summary>查看完整规则 DSL</summary><pre className="dsl">{JSON.stringify(work.proposal,null,2)}</pre></details>
         <div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={!!busy || work.confirmed}>确认规则</button><button className="secondary" onClick={simulate} disabled={!!busy || !work.confirmed}>运行模拟</button></div></> : <div className="empty tall">确认玩法细节后，这里会出现规则提案。</div>}
       </section>
@@ -130,8 +130,8 @@ function App() {
         {work.events.length ? <div className="events">{work.events.map((event,i) => <div className="event" key={i}><span className="event-index">{i+1}</span><div><strong>{String(event.event)} · 第 {String(event.round)} 轮</strong><code>{JSON.stringify(event)}</code></div></div>)}</div> : <p className="empty tall">运行模拟检查发牌、电脑动作、轮次计分和结果。</p>}
       </section>
       <GameTable state={runtime} busy={!!busy} canStart={work.confirmed} start={start} act={act} refresh={refresh}/>
-      <section className="export-bar"><div><span className="kicker">05 / TAKE IT WITH YOU</span><h2>把这局游戏带走</h2><p>解压后打开 index.html 离线游玩。练习局固定发牌，无需 API Key。</p></div>
-        <button className="primary" disabled={!!busy || !work.confirmed} onClick={() => void operation('导出游戏',async () => {await downloadGame(work.proposal!);setStatus('游戏包已下载，解压后打开 index.html')})}>下载游戏包</button>
+      <section className="export-bar"><div><span className="kicker">05 / TAKE IT WITH YOU</span><h2>把这局游戏带走</h2><p>{work.proposal?.kind ? '当前玩法支持网页试玩和保存恢复，离线导出尚未支持。' : '解压后打开 index.html 离线游玩。练习局固定发牌，无需 API Key。'}</p></div>
+        <button className="primary" disabled={!!busy || !work.confirmed || !!work.proposal?.kind} onClick={() => void operation('导出游戏',async () => {await downloadGame(work.proposal!);setStatus('游戏包已下载，解压后打开 index.html')})}>下载游戏包</button>
       </section>
     </section>
     <footer>牌面素材：<a href="https://github.com/hayeah/playing-cards-assets" target="_blank" rel="noreferrer">Playing Cards Assets</a> · <a href={API + '/assets/cards/LICENSE'}>MIT License</a></footer>

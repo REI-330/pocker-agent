@@ -73,3 +73,32 @@ def test_repair_failure_is_visible_to_caller():
     result = RuleAgent(model).turn(AgentSession(), "生成规则")
     assert result.kind == "error"
     assert any(error.startswith("repair_failed:") for error in result.errors)
+
+
+def test_24_cannot_be_disguised_as_high_card_even_after_repair():
+    model = FakeModel(json.dumps({"type":"proposal","rules":valid_rules()}), json.dumps(valid_rules()))
+    result = RuleAgent(model).turn(AgentSession(), "做一个24点游戏，输入算式求24")
+    assert result.kind == "error"
+    assert any("arithmetic" in error for error in result.errors)
+
+
+def test_unsupported_game_is_not_returned_as_a_playable_proposal():
+    result = RuleAgent(FakeModel(json.dumps({"type":"unsupported","message":"目前缺少斗地主的叫地主和组合牌型"}))).turn(AgentSession(),"斗地主")
+    assert result.kind == "unsupported" and result.rules is None
+
+
+def test_displayed_terms_are_derived_from_repaired_rule_and_repair_keeps_requirements():
+    class RecordingModel(FakeModel):
+        def complete(self,messages,**kwargs):
+            self.latest=messages
+            return super().complete(messages,**kwargs)
+    broken = {**valid_rules(), "max_rounds":0}
+    model=RecordingModel(json.dumps({"type":"proposal","summary":"一共999轮","rules":broken}),json.dumps({**valid_rules(),"max_rounds":2}))
+    result=RuleAgent(model).turn(AgentSession(),"只玩2轮")
+    assert result.kind == "proposal" and "999" not in result.message and "2轮" in result.message
+    assert "只玩2轮" in model.latest[-1]["content"]
+
+
+def test_explicit_negative_game_name_does_not_force_wrong_family():
+    assert RuleAgent._expected_family("不做24点，改成21点练习") == "blackjack"
+    assert len(RuleAgent._system_prompt("arithmetic")) < len(RuleAgent._system_prompt()) * .6

@@ -8,14 +8,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .engine import RuleEngine
-from .models import GameRuleDSL
+from .executors import create_engine, restore_engine
+from .family_engines import FamilyEngine
+from .game_rules import PlayableRule
 from .storage import connect
 
 
 @dataclass
 class RuntimeSession:
     id: str
-    engine: RuleEngine
+    engine: RuleEngine | FamilyEngine
     revision: int = 0
     seed: int = 0
 
@@ -45,9 +47,9 @@ class RuntimeStore:
         else:
             self.sessions[session.id] = session
 
-    def create(self, rules: GameRuleDSL, seed: int | None = None):
+    def create(self, rules: PlayableRule, seed: int | None = None):
         seed = secrets.randbelow(2**31) if seed is None else seed
-        session = RuntimeSession(uuid.uuid4().hex, RuleEngine(rules, seed=seed), seed=seed)
+        session = RuntimeSession(uuid.uuid4().hex, create_engine(rules, seed=seed), seed=seed)
         session.engine.setup()
         run_bots(session.engine)
         with self.lock:
@@ -60,18 +62,23 @@ class RuntimeStore:
                 row = db.execute("SELECT payload FROM sessions WHERE id=?", (session_id,)).fetchone()
             if row:
                 data = json.loads(row[0])
-                return RuntimeSession(session_id, RuleEngine.restore(data["engine"]), data["revision"], data["seed"])
+                return RuntimeSession(session_id, restore_engine(data["engine"]), data["revision"], data["seed"])
         elif session_id in self.sessions:
             return self.sessions[session_id]
         raise KeyError("runtime_session_not_found")
 
-    def act(self, session_id, action, revision, card_index=0):
+    def act(self, session_id, action, revision, card_index=0, *, expression="", declared_suit=""):
         with self.lock:
             session = self.get(session_id)
             if session.revision != revision:
                 raise ValueError("stale_revision: 牌局已经更新，请刷新牌局")
+            # Execute on a copy; rejected actions must not mutate even an in-memory session.
+            session = RuntimeSession(session.id, restore_engine(session.engine.serialize()), session.revision, session.seed)
             start = len(session.engine.events)
-            event = session.engine.step(action, card_index)
+            if hasattr(session.engine.rules, "kind"):
+                event = session.engine.step(action, card_index, expression=expression, declared_suit=declared_suit)
+            else:
+                event = session.engine.step(action, card_index)
             run_bots(session.engine)
             session.revision += 1
             self._save(session)
@@ -80,7 +87,7 @@ class RuntimeStore:
 
 def snapshot(session):
     state = session.engine.state
-    return {
+    result = {
         "session_id": session.id, "revision": session.revision, "seed": session.seed,
         "phase": state.phase, "round": state.round_number, "max_rounds": session.engine.rules.max_rounds,
         "current_player": state.players[state.current_player].id, "human_player": "player-1",
@@ -90,6 +97,12 @@ def snapshot(session):
         "table": [c.as_dict() for c in state.table], "deck_remaining": len(state.deck),
         "events": session.engine.events[-100:],
     }
+    if hasattr(session.engine, "view"):
+        result.update(session.engine.view())
+        if result.get("kind") in {"blackjack", "shedding"} and not state.finished:
+            # A seed would let a client reconstruct private hands and the remaining deck.
+            result.pop("seed", None)
+    return result
 
 
 def export_package(rules):

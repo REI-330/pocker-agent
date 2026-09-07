@@ -43,6 +43,8 @@ def compile_game(rules, seed=7):
 
 
 def export_package(rules):
+    if hasattr(rules, "kind"):
+        raise ValueError("此玩法已支持网页试玩；需要动态输入的新版玩法暂不支持离线决策树导出")
     nodes = compile_game(rules)
     game = {"title": rules.title, "nodes": nodes}
     encoded = json.dumps(game, ensure_ascii=False).replace("<", "\\u003c")
