@@ -114,8 +114,19 @@ def simulate_plugin(rule, seed=7):
 
 
 def verify_plugin(rule, progress=lambda message: None):
-    """Fixtures are fixed before code generation; repair cannot rewrite them."""
+    """Backward-compatible check list; use ``verify_plugin_report`` for UI/statuses."""
+    return verify_plugin_report(rule, progress)["checks"]
+
+
+def verify_plugin_report(rule, progress=lambda message: None):
+    """Run independent structural/property checks and keep their status separate.
+
+    The model-authored scenarios are intentionally reported separately from the
+    host-owned properties.  Passing a scenario is not presented as proof that
+    the natural-language rule is semantically correct.
+    """
     checks = []
+    scenario_checks = []
     for scenario in rule.scenarios:
         progress("验证规则案例：" + scenario.name)
         state = scenario.state.model_dump(mode="json")
@@ -141,7 +152,9 @@ def verify_plugin(rule, progress=lambda message: None):
                 raise ValueError(
                     f"scenario {scenario.name}: {path} expected {expected!r}, received {actual!r}"
                 )
+        scenario_checks.append(scenario.name)
         checks.append(scenario.name)
+    property_checks = []
     for seed in (0, 7, 23):
         progress(f"模拟整局并检查牌张守恒：种子 {seed}")
         trace = simulate_plugin(rule, seed)
@@ -150,4 +163,19 @@ def verify_plugin(rule, progress=lambda message: None):
                 "plugin_nondeterministic: identical inputs produce different games"
             )
         checks.append(f"seed-{seed}: {len(trace) - 1} moves, deterministic, completed")
-    return checks
+        property_checks.append(f"seed-{seed}: deterministic, completed")
+        # Re-run every emitted action from the prior frame. This is independent
+        # of the model's expected fields and catches a non-replayable transition.
+        for before_frame, after_frame in zip(trace, trace[1:]):
+            _, actions = validate_frame(rule, before_frame)
+            action_ids = {a.id for a in actions}
+            emitted = after_frame.get("action")
+            if emitted is not None and emitted.get("id") not in action_ids:
+                raise ValueError("plugin_replay_action_not_legal")
+    return {
+        "checks": checks,
+        "scenario": {"status": "passed", "cases": scenario_checks},
+        "properties": {"status": "passed", "checks": property_checks},
+        "independent_oracle": {"status": "not_available", "message": "该 game_id 尚无人工 oracle，不能声称语义已证明"},
+        "browser": {"status": "not_run", "message": "需要人工浏览器整局验收"},
+    }

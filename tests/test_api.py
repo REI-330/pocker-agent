@@ -18,6 +18,15 @@ def test_health(local_app):
     assert client.get("/health").json()["status"] == "ok"
 
 
+def test_capability_matrix_exposes_supported_and_planned_mechanics(local_app):
+    _, client, _ = local_app
+    matrix = client.get("/api/capabilities").json()
+    by_id = {item["id"]: item for item in matrix["capabilities"]}
+    assert by_id["arithmetic"]["status"] == "stable"
+    assert by_id["generated_plugin"]["status"] == "experimental"
+    assert by_id["multiplayer_network"]["status"] == "planned"
+
+
 def test_validate_and_simulate(local_app):
     _, client, _ = local_app
     assert client.post("/api/rules/validate", json=fixture_payload()).json()["valid"]

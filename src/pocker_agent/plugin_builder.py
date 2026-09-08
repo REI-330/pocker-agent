@@ -7,7 +7,7 @@ from functools import lru_cache
 
 from .llm import OpenAICompatibleClient
 from .model_json import parse_object
-from .plugin_sandbox import verify_plugin
+from .plugin_sandbox import verify_plugin, verify_plugin_report
 from .plugin_schema import PluginPlan, PluginRule, PluginState, card_catalog
 
 PROTOCOL = """
@@ -161,9 +161,9 @@ def build_program(model, conversation, previous=None, progress=lambda message: N
     if plan_result.get("reuse_source") is True:
         progress("仅修正说明，复用原源码并重新验证固定测试与完整对局")
         rule = PluginRule(**plan.model_dump(), source=original.source)
-        checks = accepted_program(rule.model_dump_json())
+        report = verify_plugin_report(rule)
         return {"type": "proposal", "rules": rule}, [
-            {"attempt": 1, "status": "passed", "reused_source": True, "checks": checks}
+            {"attempt": 1, "status": "passed", "reused_source": True, "checks": report["checks"], "verification": report}
         ]
     prompt = [
         {
@@ -192,9 +192,9 @@ def build_program(model, conversation, previous=None, progress=lambda message: N
             source = parse_object(raw)["source"]
             rule = PluginRule(**plan.model_dump(), source=source)
             progress("执行固定行为测试、三组完整对局和确定性重放")
-            checks = accepted_program(rule.model_dump_json())
+            report = verify_plugin_report(rule)
             attempts.append(
-                {"attempt": attempt + 1, "status": "passed", "checks": checks}
+                {"attempt": attempt + 1, "status": "passed", "checks": report["checks"], "verification": report}
             )
             return {"type": "proposal", "rules": rule}, attempts
         except (RuntimeError, ValueError, KeyError, TypeError, IndexError) as error:

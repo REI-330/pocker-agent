@@ -7,7 +7,8 @@ import './styles.css'
 import './runtime.css'
 import './config.css'
 
-type TurnResult = {kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[];facts:string[];build?:{attempt:number;status:string;error?:string;checks?:string[]}[]}
+type Verification = {scenario?:{status:string;cases:string[]};properties?:{status:string;checks:string[]};independent_oracle?:{status:string;message:string};browser?:{status:string;message:string}}
+type TurnResult = {kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[];facts:string[];contract?:{semantic_oracle:string};build?:{attempt:number;status:string;error?:string;checks?:string[];verification?:Verification}[]}
 type BuildJob = {id:string;status:string;progress:{message:string;time:number}[];result:TurnResult|null;error:string|null}
 type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null; facts: string[]; pending: {id:string;content:string}|null; buildLog:string[]}
 const EMPTY: Workbench = {turns:[],messages:[],proposal:null,confirmed:false,events:[],runtimeId:null,facts:[],pending:null,buildLog:[]}
@@ -70,7 +71,7 @@ function App() {
           setWork(current=>({...current,pending:null}))
         } else {
           const data = job.result
-          const attemptLog = (data.build || []).map(a=>`第 ${a.attempt} 次代码：${a.status === 'passed' ? '测试通过' : a.error}`)
+          const attemptLog = (data.build || []).map(a=>`第 ${a.attempt} 次代码：${a.status === 'passed' ? '固定场景与独立属性检查通过（语义 oracle：' + (a.verification?.independent_oracle?.status === 'passed' ? '通过' : '未提供') + '；浏览器：' + (a.verification?.browser?.status === 'passed' ? '通过' : '未验收') + '）' : a.error}`)
           setWork(current=>({...current,turns:[...current.turns,{role:'user',content:pending.content},{role:'assistant',content:data.message}],
             messages:data.messages,proposal:data.rules,confirmed:false,events:[],runtimeId:null,facts:data.facts || [],pending:null,buildLog:[...log,...attemptLog]}))
           setRuntime(null);setInput('')
@@ -167,7 +168,7 @@ function App() {
         {modelConfig?.configured && configBlocked && <p className="support-note">模型配置正在处理或有未保存的修改，请在模型设置中完成保存或撤销。</p>}
       </section>
       <section className="panel rules"><div className="panel-head"><div><span className="kicker">02 / RULES</span><h2>规则提案</h2></div><span className="pill">{work.confirmed ? '已确认' : '待确认'}</span></div>
-        {work.proposal ? <><div className="rule-summary"><h3>{work.proposal.title}</h3><p>{work.proposal.players.min_players} 位玩家 · {work.proposal.max_rounds} 轮</p><ul className="rule-facts">{work.facts.map((fact,i)=><li key={i}>{fact}</li>)}</ul></div>
+        {work.proposal ? <><div className="rule-summary"><h3>{work.proposal.title}</h3><p>{work.proposal.players.min_players} 位玩家 · {work.proposal.max_rounds} 轮</p><ul className="rule-facts">{work.facts.map((fact,i)=><li key={i}>{fact}</li>)}</ul><p className="support-note">请逐条核对可执行定义后确认；代码生成玩法的语义 oracle 仍需人工独立验收。</p></div>
         <details><summary>查看完整规则 DSL</summary><pre className="dsl">{JSON.stringify(work.proposal,null,2)}</pre></details>
         {work.proposal.source && <details><summary>查看 Agent 编写的游戏代码</summary><pre className="dsl">{work.proposal.source}</pre></details>}
         <div className="rule-actions"><button className="primary" onClick={confirmRules} disabled={blocked || work.confirmed}>确认规则</button><button className="secondary" onClick={simulate} disabled={blocked || !work.confirmed}>运行模拟</button></div></> : <div className="empty tall">确认玩法细节后，这里会出现规则提案。</div>}

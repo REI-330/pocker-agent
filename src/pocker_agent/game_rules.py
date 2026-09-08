@@ -155,3 +155,10 @@ def rule_facts(rules):
             "牌点由小到大：" + "、".join(rules.deck.ranks),
             *[f"阶段「{p.name}」允许{','.join(p.actions)}，累计最多{p.max_turns}次动作" for p in rules.phases],
             "每轮剩余手牌弃置，不回收；最高总分获胜，并列平局"]
+
+
+def contract_review(rules):
+    """Return the executable contract shown before a user confirms a proposal."""
+    return {"title": rules.title, "game_id": rules.game_id, "facts": rule_facts(rules),
+            "requires_confirmation": True,
+            "semantic_oracle": "unavailable" if isinstance(rules, PluginRule) else "engine_rules"}

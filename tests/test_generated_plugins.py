@@ -350,6 +350,10 @@ def test_metadata_update_reuses_source_but_reruns_validation():
     assert result["rules"].source == SOURCE
     assert result["rules"].description == updated["description"]
     assert attempts[0]["reused_source"] is True and len(attempts[0]["checks"]) == 6
+    report = attempts[0]["verification"]
+    assert report["scenario"]["status"] == "passed"
+    assert report["properties"]["status"] == "passed"
+    assert report["independent_oracle"]["status"] == "not_available"
 
 
 def test_metadata_reuse_cannot_change_executable_contract():

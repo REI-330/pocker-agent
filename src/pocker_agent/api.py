@@ -14,13 +14,14 @@ from pydantic import BaseModel, Field
 from .agent import AgentSession, RuleAgent
 from .configuration import ConfigInput, ConfigStore
 from .llm import OpenAICompatibleClient
-from .game_rules import PlayableRule, rule_facts
+from .game_rules import PlayableRule, contract_review, rule_facts
 from .executors import create_engine
 from .runtime import RuntimeStore, export_package, snapshot
 from .simulation import simulate
 from .storage import data_path
 from .validation import validate_dsl
 from .build_jobs import BuildJobs
+from .capabilities import capability_matrix
 
 
 class Message(BaseModel):
@@ -90,6 +91,10 @@ def create_app(path: Path | None = None, vault=None):
     def health():
         return {"status": "ok", "version": "0.2.0"}
 
+    @app.get("/api/capabilities")
+    def capabilities():
+        return capability_matrix()
+
     @app.get("/api/agent/config")
     def get_config():
         return config.read().public()
@@ -117,7 +122,8 @@ def create_app(path: Path | None = None, vault=None):
         result = RuleAgent(client, progress).turn(session, payload.message)
         return {"kind": result.kind, "message": result.message, "missing": result.missing,
                 "errors": result.errors, "rules": result.rules.model_dump(mode="json") if result.rules else None,
-                "messages": session.messages, "facts": rule_facts(result.rules) if result.rules else [], "build": result.build}
+                "messages": session.messages, "facts": rule_facts(result.rules) if result.rules else [],
+                "contract": contract_review(result.rules) if result.rules else None, "build": result.build}
 
     @app.post("/api/agent/turn")
     def turn(payload: TurnInput):
@@ -143,7 +149,8 @@ def create_app(path: Path | None = None, vault=None):
             except (ValueError, RuntimeError) as error:
                 errors.append(str(error))
         return {"kind": "error" if errors else "confirmed", "errors": errors,
-                "rules": rules.model_dump(mode="json") if rules else None, "facts": rule_facts(rules) if rules else []}
+                "rules": rules.model_dump(mode="json") if rules else None, "facts": rule_facts(rules) if rules else [],
+                "contract": contract_review(rules) if rules else None}
 
     @app.post("/api/rules/validate")
     def validate(payload: dict):
