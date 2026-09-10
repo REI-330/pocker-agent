@@ -12,6 +12,8 @@ from .executors import create_engine
 from .validation import validate_dsl
 from .plugin_builder import build_program
 from .model_json import parse_object
+from .tools.plans import plan_for_rules
+from .engine_agent import EngineAgent
 
 CONTRACT = """
 你是 Pocker Agent 的规则设计助手，只返回有效 json 对象。
@@ -30,7 +32,9 @@ CONTRACT = """
 以上内置DSL不支持的回合制纸牌玩法（包括抽乌龟抽对手牌、消除对子等），可以调用代码生成工具。
 用户规则明确且需要新的执行逻辑时，返回 {"type":"code","message":"需要生成新的游戏逻辑"}，由独立编码和测试流程实现。不要在本次回复写代码或假装已经实现。
 规则缺失时先question。确实超出通用牌桌、合法动作按钮及2到4人单局协议，例如多人联网、实时操作或外部服务，才返回 {"type":"unsupported","message":"具体缺少机制","missing":["..."]}。
-能力边界：稳定支持阶段式比大小、24点、无下注21点、接牌基础变体；代码生成处于实验阶段，只支持本协议的单局2到4人通用动作。下注/筹码/边池、组合牌型、叫牌/阵营、多人联网和实时同步必须明确返回缺失机制，不得降级成同名比大小。
+    5. kind=doudizhu：标准54张牌，三人各17张并留3张底牌，叫分、出牌/过牌、组合牌型和地主/农民结算。
+    6. kind=holdem：标准52张牌，2到9人，两张手牌、盲注、公共牌街道、弃牌/过牌/跟注/加注/全下、最佳五张牌和边池。
+    能力边界：稳定支持阶段式比大小、24点、无下注21点、接牌基础变体；斗地主和德州处于逐步迁移阶段，必须按对应 schema，不得降级成同名比大小。代码生成处于实验阶段，只支持本协议的单局2到4人通用动作。多人联网和实时同步必须明确返回缺失机制。
 不得把复杂玩法擅自简化或用同名比大小替代；只有用户明确同意后才简化。
 缺少胜负、玩家数、初始手牌、轮数、牌强度等重要信息时，用一次简短 question 集中澄清。
 question 格式：{"type":"question","question":"...","missing":["..."]}。
@@ -58,6 +62,8 @@ class AgentTurn:
     missing: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     build: list[dict] = field(default_factory=list)
+    tool_plan: dict[str, Any] | None = None
+    tool_plan_source: str = ""
 
 
 @dataclass
@@ -128,7 +134,8 @@ class RuleAgent:
         # Human-readable terms come from the executable rule, including after repair.
         summary = "已生成可执行规则，请核对：\n" + "\n".join(rule_facts(rules))
         session.messages.append({"role": "assistant", "content": json.dumps({"summary": summary, "rules": session.proposal}, ensure_ascii=False)})
-        return AgentTurn("proposal", summary, rules)
+        tool_plan, plan_source = EngineAgent(self.model).compose(rules)
+        return AgentTurn("proposal", summary, rules, tool_plan=tool_plan, tool_plan_source=plan_source)
 
     def _build(self, session):
         result, attempts = build_program(self.model, session.messages, session.proposal, self.progress)
@@ -190,4 +197,8 @@ class RuleAgent:
             return "blackjack"
         if re.search(r"疯狂八|crazy\s*eights", text, re.I):
             return "shedding"
+        if re.search(r"斗地主|叫地主|农民|landlord", text, re.I):
+            return "doudizhu"
+        if re.search(r"德州扑克|德州|texas\s*hold.?em|hold.?em|盲注|翻牌", text, re.I):
+            return "holdem"
         return None

@@ -41,7 +41,7 @@ export async function downloadGame(rules: Rule) {
 export type Message = {role: 'user' | 'assistant'; content: string}
 export type Card = {rank: string; suit: string; value: number}
 export type Rule = {
-  kind?: 'arithmetic' | 'blackjack' | 'shedding' | 'plugin';
+  kind?: 'arithmetic' | 'blackjack' | 'shedding' | 'doudizhu' | 'holdem' | 'plugin';
   source?: string;
   game_id: string; title: string; description: string; max_rounds: number;
   players: {min_players: number; max_players: number; starting_hand_size: number};
@@ -51,14 +51,14 @@ export type Rule = {
 export type ModelConfig = {configured: boolean; has_key: boolean; base_url: string; model: string; warning?: string}
 export type GameEvent = Record<string, unknown>
 export type Runtime = {
-  kind?: 'arithmetic' | 'blackjack' | 'shedding' | 'plugin';
+  kind?: 'arithmetic' | 'blackjack' | 'shedding' | 'doudizhu' | 'holdem' | 'plugin';
   plugin_actions?: {id: string; label: string; target_player?: number; card_index?: number}[];
   numbers?: number[]; target?: number; instructions?: string; feedback?: string; result_title?: string;
   legal_card_indices?: number[]; active_suit?: string; wild_rank?: string | null; suit_options?: string[];
   session_id: string; revision: number; seed?: number; round: number; max_rounds: number; phase: string;
   current_player: string; finished: boolean; winners: string[]; finish_reason: string;
-  legal_actions: string[]; players: {id: string; hand: Card[]; score: number; label?: string; hidden_count?: number; total?: number | null}[];
-  table: Card[]; events: GameEvent[]; deck_remaining: number;
+  legal_actions: string[]; current_bet?: number; to_call?: number; players: {id: string; hand: Card[]; score: number; label?: string; hidden_count?: number; total?: number | null; chips?: number; committed?: number; hand_committed?: number; folded?: boolean}[];
+  table: Card[]; board?: Card[]; pot?: number; side_pots?: {amount:number; eligible_players:number[]}[]; events: GameEvent[]; tool_events?: GameEvent[]; tool_plan?: Record<string, unknown>; deck_remaining: number;
 }
-export type ActionArguments = {expression?: string; declared_suit?: string}
+export type ActionArguments = {expression?: string; declared_suit?: string; amount?: number}
 export const messageOf = (error: unknown) => error instanceof Error ? error.message : '操作失败，请重试'
