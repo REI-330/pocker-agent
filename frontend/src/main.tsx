@@ -8,10 +8,10 @@ import './runtime.css'
 import './config.css'
 
 type Verification = {scenario?:{status:string;cases:string[]};properties?:{status:string;checks:string[]};independent_oracle?:{status:string;message:string};browser?:{status:string;message:string}}
-type TurnResult = {kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[];facts:string[];contract?:{semantic_oracle:string};build?:{attempt:number;status:string;error?:string;checks?:string[];verification?:Verification}[]}
+type TurnResult = {kind:string;message:string;rules:Rule|null;errors:string[];messages:Message[];facts:string[];tool_plan?:Record<string,unknown>;tool_plan_source?:string;contract?:{semantic_oracle:string};build?:{attempt:number;status:string;error?:string;checks?:string[];verification?:Verification}[]}
 type BuildJob = {id:string;status:string;progress:{message:string;time:number}[];result:TurnResult|null;error:string|null}
-type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null; facts: string[]; pending: {id:string;content:string}|null; buildLog:string[]}
-const EMPTY: Workbench = {turns:[],messages:[],proposal:null,confirmed:false,events:[],runtimeId:null,facts:[],pending:null,buildLog:[]}
+type Workbench = {turns: Message[]; messages: Message[]; proposal: Rule | null; toolPlan: Record<string,unknown>|null; confirmed: boolean; events: GameEvent[]; runtimeId: string | null; facts: string[]; pending: {id:string;content:string}|null; buildLog:string[]}
+const EMPTY: Workbench = {turns:[],messages:[],proposal:null,toolPlan:null,confirmed:false,events:[],runtimeId:null,facts:[],pending:null,buildLog:[]}
 const STORAGE_KEY = 'pocker-workbench-v2'
 function restore(): {work: Workbench; error: string} {
   try {
@@ -73,7 +73,7 @@ function App() {
           const data = job.result
           const attemptLog = (data.build || []).map(a=>`第 ${a.attempt} 次代码：${a.status === 'passed' ? '固定场景与独立属性检查通过（语义 oracle：' + (a.verification?.independent_oracle?.status === 'passed' ? '通过' : '未提供') + '；浏览器：' + (a.verification?.browser?.status === 'passed' ? '通过' : '未验收') + '）' : a.error}`)
           setWork(current=>({...current,turns:[...current.turns,{role:'user',content:pending.content},{role:'assistant',content:data.message}],
-            messages:data.messages,proposal:data.rules,confirmed:false,events:[],runtimeId:null,facts:data.facts || [],pending:null,buildLog:[...log,...attemptLog]}))
+            messages:data.messages,proposal:data.rules,toolPlan:data.tool_plan || null,confirmed:false,events:[],runtimeId:null,facts:data.facts || [],pending:null,buildLog:[...log,...attemptLog]}))
           setRuntime(null);setInput('')
           if(data.kind === 'error') setError([data.message,...data.errors].join('\n'))
           setStatus(data.kind === 'question' ? '等待补充规则' : data.kind === 'unsupported' ? '当前实现协议尚不支持' : data.kind === 'error' ? '生成未通过测试' : '规则已生成，请确认')
@@ -114,9 +114,9 @@ function App() {
   function confirmRules() {
     if (!work.proposal) return
     void operation('确认规则', async () => {
-      const data = await request<{kind:string;rules:Rule;errors:string[];facts:string[]}>('/api/agent/confirm',{proposal:work.proposal})
+      const data = await request<{kind:string;rules:Rule;errors:string[];facts:string[];tool_plan?:Record<string,unknown>}>('/api/agent/confirm',{proposal:work.proposal,tool_plan:work.toolPlan})
       if (data.kind !== 'confirmed') throw new Error(data.errors.join('\n'))
-      setWork({...work,proposal:data.rules,confirmed:true,facts:data.facts});setStatus('规则已确认')
+      setWork({...work,proposal:data.rules,toolPlan:data.tool_plan || work.toolPlan,confirmed:true,facts:data.facts});setStatus('规则已确认')
     })
   }
   function simulate() {
@@ -130,7 +130,7 @@ function App() {
   function start() {
     if (!work.confirmed || !work.proposal) return
     void operation('开始试玩', async () => {
-      const data = await request<Runtime>('/api/runtime/sessions', work.proposal)
+      const data = await request<Runtime>('/api/runtime/sessions', {rules:work.proposal,tool_plan:work.toolPlan})
       setRuntime(data);setWork({...work,runtimeId:data.session_id});setStatus(data.finished ? '本局已结束' : '轮到你出牌')
     })
   }

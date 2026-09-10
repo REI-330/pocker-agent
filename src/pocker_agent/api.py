@@ -16,12 +16,16 @@ from .configuration import ConfigInput, ConfigStore
 from .llm import OpenAICompatibleClient
 from .game_rules import PlayableRule, contract_review, rule_facts
 from .executors import create_engine
-from .runtime import RuntimeStore, export_package, snapshot
+from .runtime import RuntimeStore, ToolPlanRuntime, export_package, snapshot
 from .simulation import simulate
 from .storage import data_path
 from .validation import validate_dsl
 from .build_jobs import BuildJobs
 from .capabilities import capability_matrix
+from .game_layer import GameLayer
+from .tools import ToolPlan, default_registry
+from .tools.plans import plan_for_rules
+from .engine_agent import EngineAgent
 
 
 class Message(BaseModel):
@@ -38,6 +42,7 @@ class TurnInput(BaseModel):
 class ConfirmInput(BaseModel):
     proposal: dict
     messages: list[Message] = Field(default_factory=list)
+    tool_plan: dict | None = None
 
 
 class ActionInput(BaseModel):
@@ -45,11 +50,12 @@ class ActionInput(BaseModel):
     card_index: int = Field(default=0, ge=0)
     expression: str = Field(default="", max_length=256)
     declared_suit: str = Field(default="", max_length=16)
+    amount: int | None = Field(default=None, ge=0)
 
 
 def create_app(path: Path | None = None, vault=None):
     app = FastAPI(title="Pocker Agent", version="0.2.0")
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:5174", "http://127.0.0.1:5175"],
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
     path = path or data_path()
     config = ConfigStore(path, vault)
@@ -93,7 +99,32 @@ def create_app(path: Path | None = None, vault=None):
 
     @app.get("/api/capabilities")
     def capabilities():
-        return capability_matrix()
+        result = capability_matrix()
+        result["tools"] = default_registry().names()
+        return result
+
+    @app.get("/api/tools")
+    def tools():
+        return {"tools": default_registry().names(), "composition": "ToolPlan -> GameLayer"}
+
+    @app.post("/api/tools/plan/validate")
+    def validate_tool_plan(payload: dict):
+        try:
+            plan = ToolPlan.model_validate(payload)
+            layer = GameLayer.from_plan(plan)
+            return {"valid": True, "plan": plan.model_dump(mode="json"), "layer": layer.describe()}
+        except ValueError as error:
+            return {"valid": False, "errors": [str(error)]}
+
+    @app.post("/api/tools/plan/execute")
+    def execute_tool_plan(payload: dict):
+        """Run declared actions only; no source code or dynamic imports accepted."""
+        try:
+            plan = ToolPlan.model_validate(payload)
+            layer = GameLayer.from_plan(plan)
+            return {"valid": True, "result": layer.execute()}
+        except (ValueError, TypeError) as error:
+            return {"valid": False, "errors": [str(error)]}
 
     @app.get("/api/agent/config")
     def get_config():
@@ -120,10 +151,14 @@ def create_app(path: Path | None = None, vault=None):
             raise ValueError("请输入玩法")
         session = AgentSession([m.model_dump() for m in payload.messages], payload.proposal)
         result = RuleAgent(client, progress).turn(session, payload.message)
+        if result.rules is not None and result.tool_plan is not None:
+            runtime.register_generated_plan(result.rules, result.tool_plan, result.tool_plan_source)
         return {"kind": result.kind, "message": result.message, "missing": result.missing,
                 "errors": result.errors, "rules": result.rules.model_dump(mode="json") if result.rules else None,
                 "messages": session.messages, "facts": rule_facts(result.rules) if result.rules else [],
-                "contract": contract_review(result.rules) if result.rules else None, "build": result.build}
+                "contract": contract_review(result.rules) if result.rules else None, "build": result.build,
+                "tool_plan": result.tool_plan if result.rules else None,
+                "tool_plan_source": result.tool_plan_source if result.rules else None}
 
     @app.post("/api/agent/turn")
     def turn(payload: TurnInput):
@@ -143,14 +178,28 @@ def create_app(path: Path | None = None, vault=None):
     def confirm(payload: ConfirmInput):
         # Confirmation and gameplay validate the contract; they need no model or key.
         rules, errors = validate_dsl(payload.proposal)
-        if rules and not errors:
+        resolved_plan = payload.tool_plan or (plan_for_rules(rules) if rules else None)
+        if rules and not errors and resolved_plan:
             try:
-                create_engine(rules, seed=7).setup()
-            except (ValueError, RuntimeError) as error:
+                checked = ToolPlan.model_validate(resolved_plan)
+                if checked.game_kind != getattr(rules, "kind", "legacy"):
+                    raise ValueError("tool_plan_game_kind_mismatch")
+                missing = sorted(EngineAgent.required_tools(rules) - {item.name for item in checked.tools})
+                if missing:
+                    raise ValueError("tool_plan_missing_required:" + ",".join(missing))
+                resolved_plan = checked.model_dump(mode="json")
+                plan_runtime = ToolPlanRuntime(resolved_plan)
+                plan_runtime.compose()
+                engine = create_engine(rules, seed=7, tool_plan=resolved_plan)
+                plan_runtime.start(engine)
+                plan_runtime.validate_events(engine.events)
+            except (ValueError, TypeError, RuntimeError) as error:
                 errors.append(str(error))
         return {"kind": "error" if errors else "confirmed", "errors": errors,
                 "rules": rules.model_dump(mode="json") if rules else None, "facts": rule_facts(rules) if rules else [],
-                "contract": contract_review(rules) if rules else None}
+                "contract": contract_review(rules) if rules else None,
+                "tool_plan": resolved_plan,
+                "tool_plan_source": runtime.plan_source(rules, payload.tool_plan) if rules else None}
 
     @app.post("/api/rules/validate")
     def validate(payload: dict):
@@ -163,8 +212,11 @@ def create_app(path: Path | None = None, vault=None):
         return {"completed": result.completed, "winner": result.winner, "events": result.events}
 
     @app.post("/api/runtime/sessions")
-    def create_session(rules: PlayableRule, seed: int | None = None):
-        return snapshot(runtime.create(rules, seed))
+    def create_session(payload: dict, seed: int | None = None, player_count: int | None = None):
+        from .game_rules import parse_rule
+        raw_rules = payload.get("rules", payload)
+        rules = parse_rule(raw_rules)
+        return snapshot(runtime.create(rules, seed, player_count, payload.get("tool_plan")))
 
     @app.get("/api/runtime/sessions/{session_id}")
     def get_session(session_id: str):
@@ -172,8 +224,9 @@ def create_app(path: Path | None = None, vault=None):
 
     @app.post("/api/runtime/sessions/{session_id}/actions/{action}")
     def act(session_id: str, action: str, payload: ActionInput):
-        return runtime.act(session_id, action, payload.revision, payload.card_index,
-                           expression=payload.expression, declared_suit=payload.declared_suit)
+            return runtime.act(session_id, action, payload.revision, payload.card_index,
+                               expression=payload.expression, declared_suit=payload.declared_suit,
+                               amount=payload.amount)
 
     @app.post("/api/games/export")
     def export(rules: PlayableRule):

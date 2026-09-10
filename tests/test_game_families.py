@@ -136,6 +136,40 @@ def test_shedding_checks_matching_and_wild_suit_before_mutating():
     assert engine.state.current_player == 1
 
 
+def test_wild_declared_suit_replaces_printed_suit():
+    engine = create_engine(rules_for("shedding"), 7)
+    engine.setup()
+    engine.discard = [c(8, "D")]
+    engine.state.table = engine.discard[:]
+    engine.extra["active_suit"] = "C"
+    engine.state.players[0].hand = [c("K", "C"), c(5, "D"), c(8, "H")]
+    assert engine.choices() == [0, 2]
+    before = copy.deepcopy(engine.serialize())
+    with pytest.raises(ValueError): engine.step("play", 1)
+    assert engine.serialize() == before
+    engine.step("play", 0)
+    assert engine.discard[-1] == c("K", "C")
+
+
+@pytest.mark.parametrize("players", [2, 3, 4])
+def test_shedding_restores_before_every_move_without_losing_cards(players):
+    rules = rules_for("shedding", players={"min_players": players, "max_players": players, "starting_hand_size": 5})
+    for seed in (3, 7, 11):
+        engine = create_engine(rules, seed)
+        engine.setup()
+        for _ in range(1000):
+            if engine.state.finished: break
+            restored = restore_engine(engine.serialize())
+            engine.step()
+            restored.step()
+            assert restored.serialize() == engine.serialize()
+            all_cards = restored.state.deck + restored.discard + [c for p in restored.state.players for c in p.hand]
+            assert len(all_cards) == len(set(all_cards)) == 52
+            engine = restored
+        assert engine.state.finished
+        assert any(e.get("tool") == "draw_discard" for e in engine.events)
+
+
 @pytest.mark.parametrize("kind",["arithmetic","blackjack","shedding"])
 def test_seeded_play_is_reproducible_and_restorable(kind):
     rules=rules_for(kind)

@@ -104,14 +104,67 @@ class SheddingRule(RuleHeader):
         return self
 
 
+class DoudizhuPlayers(StrictSpec):
+    min_players: Literal[3] = 3
+    max_players: Literal[3] = 3
+    starting_hand_size: Literal[17] = 17
+
+
+class DoudizhuRule(RuleHeader):
+    kind: Literal["doudizhu"]
+    players: DoudizhuPlayers
+    deck: DeckSpec
+    bidding_values: list[int] = Field(default=[0, 1, 2, 3], min_length=2, max_length=4)
+    bomb_doubles: bool = True
+    spring_doubles: bool = True
+    allow_four_with_two: bool = True
+    dealing: Literal["three_hands_and_kitty"] = "three_hands_and_kitty"
+
+    @model_validator(mode="after")
+    def executable(self):
+        if set(self.deck.suits) != {"S", "H", "D", "C"} or set(self.deck.ranks) != set(["A", *map(str, range(2, 11)), "J", "Q", "K", "BJ", "RJ"]):
+            raise ValueError("斗地主使用标准54张牌，花色S/H/D/C并含BJ/RJ")
+        if self.deck.copies != 1 or self.max_rounds != 1 or self.bidding_values != sorted(set(self.bidding_values)):
+            raise ValueError("斗地主必须单局且叫分值需唯一递增")
+        return self
+
+
+class HoldemPlayers(StrictSpec):
+    min_players: int = Field(default=2, ge=2, le=9)
+    max_players: int = Field(default=2, ge=2, le=9)
+    starting_hand_size: Literal[2] = 2
+
+
+class HoldemRule(RuleHeader):
+    kind: Literal["holdem"]
+    players: HoldemPlayers
+    starting_chips: int = Field(default=1000, ge=1, le=10_000_000)
+    small_blind: int = Field(default=10, ge=1)
+    big_blind: int = Field(default=20, ge=1)
+    streets: list[Literal["preflop", "flop", "turn", "river"]] = Field(default=["preflop", "flop", "turn", "river"], min_length=1)
+    actions: list[Literal["fold", "check", "call", "raise", "all_in"]] = Field(default=["fold", "check", "call", "raise", "all_in"], min_length=2)
+    dealing: Literal["two_private_and_community"] = "two_private_and_community"
+
+    @model_validator(mode="after")
+    def executable(self):
+        standard_deck(self.deck)
+        if self.players.max_players < self.players.min_players or self.big_blind <= self.small_blind:
+            raise ValueError("德州扑克玩家范围或盲注配置无效")
+        if len(set(self.streets)) != len(self.streets) or self.streets[0] != "preflop":
+            raise ValueError("德州街道必须从preflop开始且不得重复")
+        if self.big_blind > self.starting_chips:
+            raise ValueError("大盲不能超过起始筹码")
+        return self
+
+
 def standard_deck(deck):
     if set(deck.ranks) != set(["A", *map(str, range(2, 11)), "J", "Q", "K"]) or set(deck.suits) != {"S", "H", "D", "C"} or deck.copies != 1:
         raise ValueError("此玩法当前使用标准52张牌，花色S/H/D/C，一副，无大小王")
 
 
-PlayableRule = GameRuleDSL | ArithmeticRule | BlackjackRule | SheddingRule | PluginRule
+PlayableRule = GameRuleDSL | ArithmeticRule | BlackjackRule | SheddingRule | DoudizhuRule | HoldemRule | PluginRule
 RULE_ADAPTER = TypeAdapter(PlayableRule)
-RULE_MODELS = {"arithmetic": ArithmeticRule, "blackjack": BlackjackRule, "shedding": SheddingRule, "plugin": PluginRule}
+RULE_MODELS = {"arithmetic": ArithmeticRule, "blackjack": BlackjackRule, "shedding": SheddingRule, "doudizhu": DoudizhuRule, "holdem": HoldemRule, "plugin": PluginRule}
 
 
 def parse_rule(payload):
@@ -151,6 +204,14 @@ def rule_facts(rules):
                 "无合法牌时持续摸牌，摸到能出的牌必须出牌；无法摸牌且不能出牌时跳过",
                 ("牌堆空时回收弃牌，保留顶牌" if rules.recycle_discard else "不回收弃牌"),
                 "全员无法行动时" + ("判平局" if rules.blocked_result == "draw" else "剩余手牌最少者获胜")]
+    if isinstance(rules, DoudizhuRule):
+        return ["三人斗地主：每人17张，另留3张底牌", "轮流叫0到3分，最高叫分者为地主并获得底牌",
+                "支持单牌、对子、三条、顺子、连对、飞机、四带二、炸弹和王炸", "地主先出牌；必须跟同类型更大牌型或选择不出",
+                ("炸弹和王炸使倍数翻倍；春天/反春天翻倍" if rules.spring_doubles else "炸弹翻倍，不计算春天")]
+    if isinstance(rules, HoldemRule):
+        return [f"{rules.players.min_players}到{rules.players.max_players}人无限注德州扑克，虚拟筹码{rules.starting_chips}",
+                f"大小盲为{rules.small_blind}/{rules.big_blind}，每人两张手牌", "公共牌阶段：" + "、".join(rules.streets),
+                "支持弃牌、过牌、跟注、加注和全下；摊牌按七张牌取最佳五张牌", "支持底池和边池结算"]
     return [f"{rules.players.min_players}人，每轮起手{rules.players.starting_hand_size}张，共{rules.max_rounds}轮",
             "牌点由小到大：" + "、".join(rules.deck.ranks),
             *[f"阶段「{p.name}」允许{','.join(p.actions)}，累计最多{p.max_turns}次动作" for p in rules.phases],

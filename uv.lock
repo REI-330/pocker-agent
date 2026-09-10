@@ -550,6 +550,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "keyring" },
     { name = "openai" },
+    { name = "pokerkit" },
     { name = "pydantic" },
     { name = "quickjs-ng" },
     { name = "uvicorn", extra = ["standard"] },
@@ -566,6 +567,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "openai", specifier = ">=3.8.0" },
+    { name = "pokerkit", specifier = "==0.7.5" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "quickjs-ng", specifier = "==0.16.2.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
@@ -575,6 +577,15 @@ requires-dist = [
 dev = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "pytest", specifier = ">=8.3.0" },
+]
+
+[[package]]
+name = "pokerkit"
+version = "0.7.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/a8/8a40e4d0fcf92b178e2c2cb6a959ed4ef8e23e9f11e011e0389e15f794f8/pokerkit-0.7.5.tar.gz", hash = "sha256:7eed51e55821295d9ccaf83dbdc61f6905b8a6f4829da115513ea148e86e8102", size = 109723, upload-time = "2026-08-22T07:14:53.448Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/15/e2c2c1acf4a2e17fc9c300564befe758cc0a97067a7e841cff579681c316/pokerkit-0.7.5-py3-none-any.whl", hash = "sha256:3e1a0b2a8a9785369c86e2c1392dd2204ee536fbcbe77a779c875bd545eb63e8", size = 113874, upload-time = "2026-08-22T07:14:52.187Z" },
 ]
 
 [[package]]
