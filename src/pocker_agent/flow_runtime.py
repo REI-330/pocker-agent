@@ -74,7 +74,10 @@ class FlowRuntime:
         for _ in range(self.plan.flow.step_limit):
             node = self.plan.flow.nodes[self.pc]
             if node.kind == "call":
-                executor.execute(node.action)
+                call_result = executor.execute(node.action)
+                if node.action.tool == "community_deal":
+                    street = self.layer.context.state.get("street")
+                    self.layer.context.emit("street_started", street=street)
                 self.events[-1]["flow_node"] = self.pc
                 self.pc = node.next
             elif node.kind == "branch":
