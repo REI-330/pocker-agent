@@ -59,3 +59,19 @@ class PointContestTool:
             return []
         best = max(ranks[i] for i in eligible)
         return [i for i in eligible if ranks[i] == best]
+
+
+class DealerPolicyTool:
+    """Reusable bounded point-hand policy; owns drawing, not a game engine."""
+    def play(self, stock, hand, hand_rank, stand_on: int = 17, hits_soft: bool = True):
+        if not callable(hand_rank):
+            raise ToolError("invalid_hand_rank_tool")
+        draws = 0
+        while True:
+            rank = hand_rank(hand)
+            if rank["total"] > 21 or rank["total"] > stand_on or (rank["total"] == stand_on and not (hits_soft and rank["soft"])):
+                return {"total": rank["total"], "soft": rank["soft"], "draws": draws}
+            if not stock:
+                raise ToolError("deck_exhausted")
+            hand.append(stock.pop())
+            draws += 1
