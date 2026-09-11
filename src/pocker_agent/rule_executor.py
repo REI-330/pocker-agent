@@ -34,6 +34,8 @@ class RuleExecutor:
 
     def _resolve(self, value: Any) -> Any:
         """Resolve only `$state.foo.bar` references; never evaluates code."""
+        if isinstance(value, str) and value == "$state":
+            return self.layer.context.state
         if isinstance(value, str) and (value.startswith("$state.") or value.startswith("$tool.")):
             if value.startswith("$state."):
                 current: Any = self.layer.context.state
