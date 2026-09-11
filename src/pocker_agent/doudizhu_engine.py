@@ -38,6 +38,8 @@ class DoudizhuEngine:
         config = next((item.get("config", {}) for item in self.tool_plan.get("tools", [])
                        if isinstance(item, dict) and item.get("name") == "doudizhu_settle"), {"player_count": 3})
         self._settlement_tool = default_registry().create("doudizhu_settle", **config)
+        self._rank_tool = default_registry().create("doudizhu_hand_rank")
+        self._climb_tool = default_registry().create("climb_beats")
         self.state = None
 
     def tool_call(self, tool, operation, **payload):
@@ -87,10 +89,12 @@ class DoudizhuEngine:
         seen = set()
         for size in range(1, min(20, len(hand)) + 1):
             for indices in combinations(range(len(hand)), size):
-                try: candidate = classify([hand[i] for i in indices])
+                try: candidate = self._rank_tool([hand[i] for i in indices])
                 except ValueError: continue
                 if candidate.key() in seen: continue
-                if self.state.last_play is None or beats(candidate, self.state.last_play):
+                if self.state.last_play is None or self._climb_tool(
+                    current={"kind": candidate.kind, "rank": candidate.rank, "length": candidate.length},
+                    previous={"kind": self.state.last_play.kind, "rank": self.state.last_play.rank, "length": self.state.last_play.length}):
                     seen.add(candidate.key()); yield indices, candidate
 
     def step(self, action: str | None = None, card_index=0, **kwargs):
@@ -123,8 +127,11 @@ class DoudizhuEngine:
             hand = self.state.hands[self.state.current_player]
             if not indices or any(i < 0 or i >= len(hand) for i in indices) or len(set(indices)) != len(indices): raise ValueError("card_index_out_of_range")
             selected = [hand[i] for i in reversed(indices)]
-            hand_type = classify(selected)
-            if self.state.last_play and not beats(hand_type, self.state.last_play): raise ValueError("play_does_not_beat")
+            hand_type = self._rank_tool(selected)
+            if self.state.last_play:
+                current = {"kind": hand_type.kind, "rank": hand_type.rank, "length": hand_type.length}
+                previous = {"kind": self.state.last_play.kind, "rank": self.state.last_play.rank, "length": self.state.last_play.length}
+                if not self._climb_tool(current=current, previous=previous): raise ValueError("play_does_not_beat")
             for i in indices: hand.pop(i)
             self.state.last_play, self.state.last_player, self.state.passes = hand_type, self.state.current_player, 0
             if hand_type.kind in {"bomb", "rocket"}: self.state.bombs += 1
