@@ -44,7 +44,7 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "zones"}, {"name": "draw_discard"},
                           {"name": "card_match"}, {"name": "turn_order", "config": {"players": players}},
-                          {"name": "condition"}, {"name": "winner_resolve"}, {"name": "score_settle"}]
+                          {"name": "win_condition"}, {"name": "winner_resolve"}, {"name": "score_settle"}]
         base["actions"] = [{"tool": "deck", "operation": "deal",
                              "args": {"seed": 0, "hands": len(players), "cards_each": hand_size, "kitty": 1},
                              "result_key": "deal"},

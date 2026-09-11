@@ -344,8 +344,15 @@ class SheddingEngine(FamilyEngine):
             self.state.table = self.discard[-1:]
             self.extra["active_suit"] = declared_suit if card.rank == self.rules.wild_rank else card.suit
             event = self.emit("action_executed", player=p.id, action="play", card=card.as_dict(), active_suit=self.extra["active_suit"])
-            if evaluate("hand_empty", hand_size=len(p.hand)):
-                p.score += 1
+            outcome = self.invoke_tool("win_condition", "check",
+                                       tool=self.configured_tool("win_condition"),
+                                       state={"hand_sizes": {p.id: len(p.hand)}},
+                                       condition="hand_empty")
+            if outcome.get("finished"):
+                scores = self.invoke_tool("score_settle", "call",
+                                           scores=[player.score for player in self.state.players],
+                                           winners=[self.state.players.index(p)], points=1)
+                for player, score in zip(self.state.players, scores): player.score = score
                 self.finish([p.id], "hand_empty")
                 return event
         elif action_name == "draw":
