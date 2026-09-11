@@ -4,6 +4,7 @@ import operator
 
 from .core import ToolError, DeckTool
 from ..arithmetic import solve
+from .matching import matches
 
 
 class StateTool:
@@ -94,3 +95,34 @@ class ArithmeticDealTool:
             if solve(tuple(numbers), self.target, self.operations, self.fractional) is not None:
                 return {"hand": hand, "stock": stock, "numbers": numbers}
         raise ToolError("no_solvable_deal")
+
+
+class SheddingTurnTool:
+    """Execute one draw/play turn against shared state."""
+    def __init__(self, wild_rank=None, recycle=True):
+        self.wild_rank, self.recycle = wild_rank, recycle
+
+    def play(self, state, action, card_index=0, declared_suit=""):
+        hands, current = state["hands"], state["current_player"]
+        hand, table = hands[current], state.get("table", [])
+        top = table[-1] if table else None
+        if action == "play":
+            if type(card_index) is not int or not 0 <= card_index < len(hand):
+                raise ToolError("card_index_out_of_range")
+            card = hand[card_index]
+            if top is not None and not matches(card, top, active_suit=state.get("active_suit"), wild_ranks={self.wild_rank} if self.wild_rank else set()):
+                raise ToolError("card_does_not_match")
+            hand.pop(card_index); table.append(card)
+            state["active_suit"] = declared_suit if self.wild_rank and card.rank == self.wild_rank and declared_suit else card.suit
+            if not hand:
+                state.update(finished=True, winners=[current], phase="finished", finish_reason="hand_empty")
+                return {"action": "play", "finished": True, "player": current}
+        elif action == "draw":
+            if not state.get("stock") and self.recycle and len(table) > 1:
+                state["stock"] = list(table[:-1]); state["table"] = table[-1:]
+            if not state.get("stock"): raise ToolError("deck_exhausted")
+            hand.append(state["stock"].pop())
+        elif action != "pass":
+            raise ToolError("illegal_shedding_action")
+        state["current_player"] = (current + 1) % len(hands)
+        return {"action": action, "finished": False, "player": current}
