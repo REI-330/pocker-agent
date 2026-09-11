@@ -112,6 +112,11 @@ class RuntimeSession:
 
 
 def run_bots(engine):
+    # Declarative flows do not imply a bot policy. Never invent an action from
+    # a wildcard wait pattern (e.g. ``bid:*``); every player decision must be
+    # supplied explicitly by the caller or by a future policy Tool.
+    if getattr(engine, "execution_mode", None) == "tool_flow":
+        return
     for _ in range(10000):
         if engine.state.finished or engine.state.current_player == 0:
             return
