@@ -256,7 +256,17 @@ class BlackjackEngine(FamilyEngine):
         elif h > d: winner, reason = human, "你的点数更高，获胜"
         elif d > h: winner, reason = dealer, "庄家的点数更高，获胜"
         else: reason = "点数相同，本轮平局"
-        if winner: winner.score += 1
+        # Use the declared generic settlement tool for the score mutation.
+        # Winner selection above preserves blackjack-specific precedence
+        # (natural blackjack and bust rules), while score accounting is shared
+        # with other card families.
+        if winner:
+            winner_index = self.state.players.index(winner)
+            scores = [player.score for player in self.state.players]
+            settled = self.invoke_tool("score_settle", "call", scores=scores,
+                                       winners=[winner_index], points=1)
+            for player, score in zip(self.state.players, settled):
+                player.score = score
         self.extra["feedback"] = f"你 {h} 点 · 庄家 {d} 点。{reason}。"
         self.state.phase = "本轮结算"
         event = self.emit("round_finished", human_total=h, dealer_total=d, winner=winner.id if winner else None, reason=reason)
