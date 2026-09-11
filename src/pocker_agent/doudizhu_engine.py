@@ -41,7 +41,8 @@ class DoudizhuEngine:
         self._rank_tool = default_registry().create("doudizhu_hand_rank")
         self._climb_tool = default_registry().create("climb_beats")
         deck_config = next((item.get("config", {}) for item in self.tool_plan.get("tools", [])
-                            if isinstance(item, dict) and item.get("name") == "deck"), {})
+                            if isinstance(item, dict) and item.get("name") == "deck"),
+                           {"ranks": rules.deck.ranks, "suits": rules.deck.suits})
         self._deck_tool = default_registry().create("deck", **deck_config)
         self.state = None
 
