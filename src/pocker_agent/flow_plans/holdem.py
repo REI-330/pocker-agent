@@ -54,8 +54,11 @@ def holdem_plan(rules):
         {"name": "community_deal"}, {"name": "all_in"}, {"name": "showdown"},
         {"name": "pot_winners"}, {"name": "settle_pots"},
     ]
+    actions = [{"tool": "deck", "operation": "deal", "args": {"seed": 0, "hands": count, "cards_each": 2}, "result_key": "deal"}]
+    actions += [{"tool": "zones", "operation": "create", "args": {"name": f"player-{i+1}", "cards": f"$state.deal.hands.{i}", "visible_to": [f"player-{i+1}"]}} for i in range(count)]
+    actions.append({"tool": "zones", "operation": "create", "args": {"name": "community", "cards": "$state.deal.kitty", "visible_to": ["*"]}})
     return {"schema_version": "1.0", "game_kind": "holdem", "players": count,
-            "tools": tools, "phases": list(rules.streets), "requirements": [],
+            "tools": tools, "phases": list(rules.streets), "requirements": [], "actions": actions,
             "flow": {"entry": "deal", "initial": {
                 "stacks": [rules.starting_chips - blind for blind in blinds],
                 "committed": blinds, "hand_committed": blinds,
