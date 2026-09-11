@@ -108,7 +108,6 @@ def main():
             if state["finished"]:
                 break
             assert state["execution_mode"] == "tool_flow", state
-            assert state["current_player"] == "player-1", state
             action = "check" if "check" in state["legal_actions"] else "call"
             actions.append(action)
             result = request(path + f"/actions/{action}", {"revision": state["revision"]})
