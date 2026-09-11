@@ -131,6 +131,12 @@ class SheddingTurnTool:
         state["current_player"] = (current + 1) % len(hands)
         return {"action": action, "finished": False, "player": current}
 
+    def draw_until_playable(self, state, recycle_seed=0):
+        from .draw_discard import DrawUntilPlayableTool
+        current = state["current_player"]; hand = state["hands"][current]; table = state.get("table", [])
+        result = DrawUntilPlayableTool(self.recycle, (self.wild_rank,) if self.wild_rank else ()).draw_until_playable(hand, state["stock"], [], top=table[-1] if table else None, active_suit=state.get("active_suit"), recycle_seed=recycle_seed)
+        state["current_player"] = (current + 1) % len(state["hands"]); return {"action": "draw_until_playable", "player": current, **result}
+
 
 class DoudizhuTurnTool:
     """Handle one landlord bid or card-combination turn in shared state."""

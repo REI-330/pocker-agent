@@ -42,7 +42,7 @@ def default_registry() -> ToolRegistry:
     from .matching import matches, follow_suit, group_by
     from .conditions import evaluate
     from .patterns import resolve_trick, detect_meld
-    from .draw_discard import DrawDiscardTool
+    from .draw_discard import DrawDiscardTool, DrawUntilPlayableTool
     from .climbing import climb_beats
     from .triggers import TriggerTool
     from .holdem import BettingRoundTool, PhaseProgressTool, CommunityDealTool, AllInTool, showdown, settle_pots
@@ -69,6 +69,7 @@ def default_registry() -> ToolRegistry:
     registry.register("trick_resolve", function_tool(resolve_trick))
     registry.register("meld_detect", function_tool(detect_meld))
     registry.register("draw_discard", DrawDiscardTool)
+    registry.register("draw_until_playable", DrawUntilPlayableTool)
     registry.register("climb_beats", function_tool(climb_beats))
     registry.register("triggers", TriggerTool)
     registry.register("betting_round", BettingRoundTool)

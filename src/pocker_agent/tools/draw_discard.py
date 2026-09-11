@@ -36,3 +36,21 @@ class DrawDiscardTool:
     def top(self) -> CardRef | None: return self.discard[-1] if self.discard else None
     @staticmethod
     def _id(card): return getattr(card, "id", (getattr(card, "suit", ""), getattr(card, "rank", ""), getattr(card, "value", 0)))
+
+
+@dataclass
+class DrawUntilPlayableTool:
+    recycle: bool = True
+    wild_ranks: tuple[str, ...] = ()
+    def draw_until_playable(self, hand, stock, discard, *, top=None, active_suit=None, recycle_seed=0):
+        import random
+        drawn=[]; top = top if top is not None else (discard[-1] if discard else None)
+        while True:
+            if any(self._matches(card, top, active_suit) for card in hand): return {"drawn": drawn, "playable": True, "hand_size": len(hand)}
+            if not stock:
+                if not self.recycle or len(discard) <= 1: return {"drawn": drawn, "playable": False, "hand_size": len(hand)}
+                stock.extend(discard[:-1]); del discard[:-1]; random.Random(recycle_seed).shuffle(stock)
+            card=stock.pop(); hand.append(card); drawn.append(card)
+    def _matches(self, card, top, active_suit):
+        if top is None: return True
+        return card.rank in self.wild_ranks or card.suit == active_suit or card.suit == top.suit or card.rank == top.rank
