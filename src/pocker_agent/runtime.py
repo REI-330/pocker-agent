@@ -49,6 +49,23 @@ class ToolPlanRuntime:
             self.composition = self.layer.execute()
         return self.composition
 
+    def execute_actions(self, actions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Execute declarative ToolPlan actions through the generic interpreter.
+
+        This is the runtime entry point for games that do not need a family
+        executor: every action is resolved against the shared ToolContext and
+        only declared operations can run.
+        """
+        from .rule_executor import RuleExecutor
+        if actions is not None:
+            original = self.layer.plan.get("actions", [])
+            self.layer.plan["actions"] = actions
+            try:
+                return RuleExecutor(self.layer).run()
+            finally:
+                self.layer.plan["actions"] = original
+        return RuleExecutor(self.layer).run()
+
     def validate_events(self, events: list[dict[str, Any]]) -> None:
         """Reject host execution that calls tools absent from the plan."""
         declared = self.declared_tools
