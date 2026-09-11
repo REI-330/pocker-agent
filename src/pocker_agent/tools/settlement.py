@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 
 
 def doudizhu_multiplier(base_bid: int, bombs: int = 0, rocket: bool = False, spring: bool = False) -> int:
@@ -12,6 +13,13 @@ def doudizhu_scores(base_bid: int, landlord: int, winner: int, player_count: int
     if winner == landlord:
         return [amount * 2 if i == landlord else -amount for i in range(player_count)]
     return [-amount * 2 if i == landlord else amount for i in range(player_count)]
+
+@dataclass
+class DoudizhuSettlementTool:
+    player_count: int = 3
+
+    def settle(self, base_bid: int, landlord: int, winner: int, **kwargs) -> list[int]:
+        return doudizhu_scores(base_bid, landlord, winner, self.player_count, **kwargs)
 
 
 def resolve_winners(values, mode: str = "max") -> list[int]:

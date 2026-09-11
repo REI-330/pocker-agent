@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from itertools import combinations
 
-from .tools import CardRef, DeckTool, beats, classify, doudizhu_scores
+from .tools import CardRef, DeckTool, beats, classify
 
 
 @dataclass
@@ -34,6 +34,10 @@ class DoudizhuEngine:
         self.rules, self.seed, self.events = rules, seed, []
         self.tool_plan = tool_plan or {}
         self._declared_tools = {item.get("name") for item in self.tool_plan.get("tools", []) if isinstance(item, dict)}
+        from .tools.registry import default_registry
+        config = next((item.get("config", {}) for item in self.tool_plan.get("tools", [])
+                       if isinstance(item, dict) and item.get("name") == "doudizhu_settle"), {"player_count": 3})
+        self._settlement_tool = default_registry().create("doudizhu_settle", **config)
         self.state = None
 
     def tool_call(self, tool, operation, **payload):
@@ -131,8 +135,9 @@ class DoudizhuEngine:
                 self.state.finished = True; self.state.winners = [self.state.current_player]
                 spring = ((self.state.current_player == self.state.landlord and self.state.farmer_plays == 0)
                           or (self.state.current_player != self.state.landlord and self.state.landlord_plays <= 1))
-                self.state.scores = doudizhu_scores(self.state.bid, self.state.landlord, self.state.current_player,
-                                                    bombs=self.state.bombs, spring=spring)
+                self.tool_call("doudizhu_settle", "settle")
+                self.state.scores = self._settlement_tool.settle(self.state.bid, self.state.landlord,
+                                                      self.state.current_player, bombs=self.state.bombs, spring=spring)
                 event["event"] = "game_finished"; event["winner"] = f"player-{self.state.current_player + 1}"
             else: self.state.current_player = (self.state.current_player + 1) % 3
             self.events.append(event); return event

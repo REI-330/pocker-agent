@@ -36,7 +36,7 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
     elif kind == "doudizhu":
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "doudizhu_hand_rank", "config": {}},
-                          {"name": "climb_beats", "config": {}},
+                          {"name": "climb_beats", "config": {}}, {"name": "doudizhu_settle", "config": {"player_count": 3}},
                           {"name": "turn_order", "config": {"players": [f"player-{i + 1}" for i in range(base["players"])]}}, {"name": "winner_resolve"}, {"name": "score_settle"}]
     elif kind == "shedding":
         players = [f"player-{i + 1}" for i in range(base["players"])]

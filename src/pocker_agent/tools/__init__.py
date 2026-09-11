@@ -9,7 +9,7 @@ from .betting import PotTool
 from .plan import ToolInvocation, ToolAction, ToolPlan
 from .doudizhu import DoudizhuHand, beats, classify
 from .plans import plan_for_rules
-from .settlement import doudizhu_multiplier, doudizhu_scores, resolve_winners, settle_scores
+from .settlement import doudizhu_multiplier, doudizhu_scores, resolve_winners, settle_scores, DoudizhuSettlementTool
 from .zones import ZoneTool
 from .turns import TurnOrderTool
 from .matching import matches, follow_suit, group_by
