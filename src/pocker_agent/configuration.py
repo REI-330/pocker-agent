@@ -11,7 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 import keyring
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from .storage import connect, data_path
+from .infrastructure.storage import connect, data_path
 
 
 class ConfigInput(BaseModel):

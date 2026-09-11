@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {API, type Card, type Runtime, type ActionArguments} from '../api'
+import {API, type Card, type Runtime, type ActionArguments} from '../../shared/api'
 import {FamilyActions} from './FamilyActions'
 
 const suits: Record<string,string> = {S:'spades',H:'hearts',D:'diamonds',C:'clubs','♠':'spades','♥':'hearts','♦':'diamonds','♣':'clubs'}

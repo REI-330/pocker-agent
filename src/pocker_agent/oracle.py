@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from .tools import CardRef
+from .game_runtime.tools import CardRef
 
 
 @dataclass(frozen=True)

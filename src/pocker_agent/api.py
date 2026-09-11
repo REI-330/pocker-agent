@@ -11,21 +11,22 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .agent import AgentSession, RuleAgent
+from .agents.generation import AgentSession, RuleAgent
 from .configuration import ConfigInput, ConfigStore
 from .llm import OpenAICompatibleClient
-from .game_rules import PlayableRule, contract_review, rule_facts
-from .executors import create_engine
-from .runtime import RuntimeStore, ToolPlanRuntime, export_package, snapshot
-from .simulation import simulate
-from .storage import data_path
-from .validation import validate_dsl
+from .domain.rules import PlayableRule, contract_review, rule_facts, parse_rule
+from .game_runtime.engines.factory import create_engine
+from .game_runtime.sessions import RuntimeStore, ToolPlanRuntime, snapshot
+from .game_runtime.exporting import export_package
+from .game_runtime.simulation import simulate
+from .infrastructure.storage import data_path
+from .domain.validation import validate_dsl
 from .build_jobs import BuildJobs
 from .capabilities import capability_matrix
-from .game_layer import GameLayer
-from .tools import ToolPlan, default_registry
-from .tools.plans import plan_for_rules
+from .game_runtime.composition import GameLayer
+from .game_runtime.tools import ToolPlan, default_registry, plan_for_rules
 from .engine_agent import EngineAgent
+from .application.workspace_service import ConversationService
 
 
 class Message(BaseModel):
@@ -37,12 +38,16 @@ class TurnInput(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     messages: list[Message] = Field(default_factory=list, max_length=60)
     proposal: dict | None = None
+    request_id: str | None = Field(default=None, max_length=80)
+    revision: int | None = Field(default=None, ge=0)
 
 
 class ConfirmInput(BaseModel):
-    proposal: dict
+    proposal: dict | None = None
     messages: list[Message] = Field(default_factory=list)
     tool_plan: dict | None = None
+    conversation_id: str | None = None
+    revision: int | None = None
 
 
 class ActionInput(BaseModel):
@@ -53,6 +58,11 @@ class ActionInput(BaseModel):
     amount: int | None = Field(default=None, ge=0)
 
 
+class WorkspaceCommand(BaseModel):
+    revision: int = Field(ge=0)
+    seed: int | None = None
+
+
 def create_app(path: Path | None = None, vault=None):
     app = FastAPI(title="Pocker Agent", version="0.2.0")
     app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:5174", "http://127.0.0.1:5175"],
@@ -61,6 +71,8 @@ def create_app(path: Path | None = None, vault=None):
     config = ConfigStore(path, vault)
     runtime = RuntimeStore(path)
     builds = BuildJobs()
+    conversations = ConversationService(path)
+    app.state.conversations = conversations
     app.state.config_store = config
     app.state.runtime_store = runtime
     app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "assets"), name="assets")
@@ -164,10 +176,104 @@ def create_app(path: Path | None = None, vault=None):
     def turn(payload: TurnInput):
         return generate(payload, model_client())
 
+    @app.post("/api/conversations")
+    def create_conversation():
+        return conversations.create().view()
+
+    @app.get("/api/conversations/{conversation_id}")
+    def get_conversation(conversation_id: str):
+        item = conversations.get(conversation_id)
+        if item.job:
+            try:
+                job = builds.get(item.job.get("id"))
+                item = conversations.publish_build(conversation_id, job)
+            except ValueError as error:
+                # A bounded in-memory job can expire independently of the
+                # SQLite conversation. Surface that loss instead of leaving a
+                # permanently polling `building` session.
+                if item.phase.value == "building":
+                    item = conversations.fail(conversation_id, str(error))
+        return item.view()
+
+    @app.post("/api/conversations/{conversation_id}/turn")
+    def conversation_turn(conversation_id: str, payload: TurnInput):
+        result = conversations.turn(conversation_id, payload.message, model_client(), payload.request_id, payload.revision)
+        item = conversations.get(conversation_id)
+        return {**item.view(), "kind": result.kind, "message": result.message, "missing": result.missing, "errors": result.errors}
+
+    @app.post("/api/conversations/{conversation_id}/messages")
+    def conversation_message(conversation_id: str, payload: TurnInput):
+        return conversation_turn(conversation_id, payload)
+
+    @app.post("/api/conversations/{conversation_id}/confirm")
+    def conversation_confirm(conversation_id: str, payload: ConfirmInput):
+        if payload.revision is None:
+            raise ValueError("conversation_revision_required")
+        result = conversations.confirm(conversation_id, payload.revision)
+        item = conversations.get(conversation_id)
+        if result.kind == "confirmed":
+            try:
+                client = model_client(); client.timeout_seconds = 600
+                generation_payload = TurnInput(message="使用代码生成。以下规则已由用户确认，严格按此实现：\n" + item.draft["summary"], messages=[Message(**m) for m in item.session.messages], proposal=None)
+                job = builds.start(lambda progress: generate(generation_payload, client, progress))
+                conversations.attach_job(conversation_id, {"id": job["id"], "kind": "build", "status": "running", "progress": [], "error": None})
+                item = conversations.get(conversation_id)
+            except Exception as error:
+                # Configuration, network, and queue failures all belong to
+                # this transition; persist the visible failure before letting
+                # FastAPI map the exception to its HTTP response.
+                conversations.fail(conversation_id, str(error))
+                raise
+        return {**item.view(), "kind": result.kind, "message": result.message, "errors": result.errors}
+
+    @app.post("/api/conversations/{conversation_id}/cancel")
+    def conversation_cancel(conversation_id: str, payload: ConfirmInput):
+        if payload.revision is None:
+            raise ValueError("conversation_revision_required")
+        item = conversations.get(conversation_id)
+        if item.job and item.phase.value == "building":
+            builds.cancel(item.job.get("id"))
+        return conversations.cancel(conversation_id, payload.revision).view()
+
+    @app.post("/api/conversations/{conversation_id}/build")
+    def build_conversation(conversation_id: str):
+        """Start code generation only after an explicit confirmation command."""
+        item = conversations.get(conversation_id)
+        if item.phase.value != "building": raise ValueError("conversation_must_be_confirmed_before_build")
+        return builds.get(item.job["id"]) if item.job else {"id": None, "status": "running"}
+
+    def confirmed_rules(conversation_id: str, revision: int):
+        item = conversations.get(conversation_id)
+        if revision != item.revision:
+            raise ValueError("stale_conversation_revision")
+        if item.phase.value != "playable" or not item.session.proposal:
+            raise ValueError("conversation_game_not_ready")
+        return item
+
+    @app.post("/api/conversations/{conversation_id}/runtime")
+    def conversation_runtime(conversation_id: str, payload: WorkspaceCommand):
+        item = confirmed_rules(conversation_id, payload.revision)
+        rules = parse_rule(item.session.proposal)
+        state = snapshot(runtime.create(rules, payload.seed, tool_plan=item.tool_plan))
+        conversations.set_runtime(conversation_id, state["session_id"])
+        return state
+
+    @app.post("/api/conversations/{conversation_id}/simulations")
+    def conversation_simulation(conversation_id: str, payload: WorkspaceCommand):
+        item = confirmed_rules(conversation_id, payload.revision)
+        result = simulate(parse_rule(item.session.proposal), seed=payload.seed or 7)
+        return {"completed": result.completed, "winner": result.winner, "events": result.events}
+
+    @app.post("/api/conversations/{conversation_id}/export")
+    def conversation_export(conversation_id: str, payload: WorkspaceCommand):
+        item = confirmed_rules(conversation_id, payload.revision)
+        content, filename = export_package(parse_rule(item.session.proposal))
+        return Response(content, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
     @app.post("/api/agent/jobs")
     def start_build(payload: TurnInput):
         client = model_client()
-        client.timeout_seconds = 180
+        client.timeout_seconds = 7200
         return builds.start(lambda progress: generate(payload, client, progress))
 
     @app.get("/api/agent/jobs/{job_id}")
@@ -177,6 +283,8 @@ def create_app(path: Path | None = None, vault=None):
     @app.post("/api/agent/confirm")
     def confirm(payload: ConfirmInput):
         # Confirmation and gameplay validate the contract; they need no model or key.
+        if payload.proposal is None:
+            raise ValueError("proposal_required")
         rules, errors = validate_dsl(payload.proposal)
         resolved_plan = payload.tool_plan or (plan_for_rules(rules) if rules else None)
         if rules and not errors and resolved_plan:
@@ -213,7 +321,6 @@ def create_app(path: Path | None = None, vault=None):
 
     @app.post("/api/runtime/sessions")
     def create_session(payload: dict, seed: int | None = None, player_count: int | None = None):
-        from .game_rules import parse_rule
         raw_rules = payload.get("rules", payload)
         rules = parse_rule(raw_rules)
         return snapshot(runtime.create(rules, seed, player_count, payload.get("tool_plan")))

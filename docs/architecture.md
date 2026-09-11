@@ -8,13 +8,15 @@ Pocker Agent 是本机单用户的纸牌游戏设计工作台。用户描述玩�
 
 ```mermaid
 flowchart TB
-    UI[React 工作台] -->|HTTP 请求与任务轮询| API[FastAPI / create_app]
-    UI <--> Draft[浏览器 localStorage / 对话与草稿]
-    API --> Jobs[BuildJobs / 单个后台生成任务]
-    Jobs --> Agent[RuleAgent / 澄清与规则路由]
-    Agent <--> LLM[兼容 Chat Completions 的模型服务]
-    Agent --> Rules[内置 DSL / Pydantic 校验]
-    Agent --> Builder[Plugin Builder / 合约、源码、验证与修复]
+    UI[React 工作台] -->|消息、确认、试玩 HTTP| API[FastAPI / create_app]
+    UI <--> Draft[浏览器 localStorage / 会话引用]
+    API --> Conversation[ConversationService / SQLite 会话]
+    Conversation --> Design[DesignAgent / 多轮规则澄清]
+    Design <--> LLM[兼容 Chat Completions 的模型服务]
+    Conversation -->|用户确认后| Jobs[BuildJobs / 单个后台生成任务]
+    Jobs --> Generation[Generation Agent / 规则编译与验证]
+    Generation --> Rules[内置 DSL / Pydantic 校验]
+    Generation --> Builder[Plugin Builder / 合约、源码、验证与修复]
     Builder <--> LLM
     Builder --> Worker[Python 子进程 / QuickJS]
     API --> Exec[executors / 引擎选择]
@@ -40,11 +42,12 @@ flowchart TB
 
 | 层次 | 主要源码 | 职责 |
 | --- | --- | --- |
-| 工作台编排 | [main.tsx](../frontend/src/main.tsx) | 对话、任务轮询、提案确认、模拟、试玩、草稿恢复 |
+| 工作台编排 | [main.tsx](../frontend/src/main.tsx) | 会话展示、提案确认、模拟、试玩、草稿恢复 |
 | 前端请求 | [api.ts](../frontend/src/api.ts) | HTTP、公共类型、120 秒请求超时、下载与错误转换 |
 | 模型设置 | [ModelSettings.tsx](../frontend/src/components/ModelSettings.tsx) | 临时配置、发现模型、测试连接、正式保存 |
 | 牌桌呈现 | [GameTable.tsx](../frontend/src/components/GameTable.tsx)、[FamilyActions.tsx](../frontend/src/components/FamilyActions.tsx) | 牌面/牌背、动作按钮、算式输入、指定花色、插件动作 |
-| HTTP 边界 | [api.py](../src/pocker_agent/api.py) | 输入模型、服务装配、接口、状态码；不保存长期 Agent 对话 |
+| HTTP 边界 | [api.py](../src/pocker_agent/api.py) | 输入模型、服务装配、接口、状态码 |
+| 会话应用层 | [conversation.py](../src/pocker_agent/conversation.py) | 会话持久化、revision 与设计/提案/确认状态迁移 |
 | Agent 编排 | [agent.py](../src/pocker_agent/agent.py) | 提示词、机制识别、澄清、DSL 提案、一次规则修复、调用代码构建器 |
 | 模型协议 | [llm.py](../src/pocker_agent/llm.py)、[model_json.py](../src/pocker_agent/model_json.py) | 模型请求、流输出、超时、错误脱敏、完整 JSON 对象解析 |
 | 规则合约 | [models.py](../src/pocker_agent/models.py)、[game_rules.py](../src/pocker_agent/game_rules.py)、[validation.py](../src/pocker_agent/validation.py) | 规则模型、字段及跨字段约束、`kind` 分发、中文条款 |
@@ -78,13 +81,13 @@ DSL 是描述游戏规则的数据格式。模型填写 DSL 时，执行逻辑�
 
 ## 4. 从规则到牌局
 
-页面一次“发送”通过后台任务执行 Agent。返回提案后，确认、模拟和试玩是各自独立的 HTTP 操作：
+新版页面把聊天请求和构建任务分开。每次发送先进入持久化 `ConversationService`，模型只负责多轮澄清；进入 `proposal_ready` 后，用户通过确认接口显式启动构建，构建完成才允许运行时操作：
 
-1. `POST /api/agent/confirm` 解析提案，并用 `seed=7` 执行 `setup()`；不会调用模型。内置规则主要做结构与启动检查，插件启动还会经过插件验证门槛。
-2. `POST /api/simulations` 调用 `simulate()` → `create_engine()` → `run()`，自动执行到结束或步数上限。默认 `seed=7`。
-3. `POST /api/runtime/sessions` 创建 UUID 会话；没有指定 seed 时随机生成一个，执行 `setup()`、必要的电脑回合后，将完整牌局写入 SQLite。
-4. 玩家动作携带当前 `revision`；服务端执行玩家动作并接着执行电脑回合，直到轮到 `player-1` 或游戏结束。
-5. 返回公开快照，前端显示新的牌面、动作和结果；刷新后用 `session_id` 重新读取保存的牌局。
+1. `POST /api/conversations/{id}/messages` 追加聊天轮次；用户消息会先写入会话，模型调用在锁外执行。
+2. `POST /api/conversations/{id}/confirm` 校验 `revision`，创建 `BuildJobs`；构建成功后会话进入 `playable`。
+3. `POST /api/conversations/{id}/simulations` 调用 `simulate()` → `create_engine()` → `run()`，自动执行到结束或步数上限。
+4. `POST /api/conversations/{id}/runtime` 创建 UUID 牌局；玩家动作携带当前 `revision`，服务端执行动作并接着执行电脑回合。
+5. 返回公开快照，前端显示新的牌面、动作和结果；刷新后用会话中的 `runtime_id` 重新读取保存的牌局。
 
 模拟不是试玩的强制前置步骤。页面要求先确认，但模拟和创建牌局接口直接接收规则对象，没有要求提交服务端“已确认提案 ID”。确认状态的具体归属见下一节。
 
@@ -118,9 +121,9 @@ sequenceDiagram
 
 | 状态 | 所有者/位置 | 保存内容与恢复边界 |
 | --- | --- | --- |
-| 工作台草稿 | 浏览器 `localStorage['pocker-workbench-v2']` | 展示对话 `turns`、模型历史 `messages`、提案、确认标记、模拟事件、牌局 ID、待完成任务 ID、生成日志；同一浏览器来源下刷新恢复 |
-| 单次 Agent 上下文 | 请求中的 `AgentSession` | 从客户端历史与提案临时重建；处理后把更新后的历史返回浏览器；无后端长期会话表 |
-| 后台生成任务 | `BuildJobs.jobs` 内存字典 | 状态、进度、结果和错误；浏览器刷新可继续查询，后端重启后失效 |
+| 会话草稿 | 浏览器 localStorage | 只保存 `conversation_id`、输入框和 `runtime_id`；消息与规则以服务端为准 |
+| 设计会话 | SQLite `conversations` 表 | `ConversationService` 保存消息、draft、phase、revision、request_id、构建结果与错误；服务重启会将未完成阶段标为 failed |
+| 后台生成任务 | `BuildJobs.jobs` 内存字典 | 状态、进度、结果和错误；会话轮询会同步快照，后端重启后明确要求重试 |
 | 正式模型配置 | SQLite `configuration` 表 | 单条配置 JSON：地址、模型 ID、`key_ref` |
 | API Key | keyring/Windows 系统凭据库 | SQLite 与配置 GET 均不保存或返回 Key 明文；前端草稿不持久化 Key |
 | 完整牌局 | SQLite `sessions` 表 | `id`、JSON `payload`；包含 engine 序列化、revision、seed；可跨后端重启恢复 |

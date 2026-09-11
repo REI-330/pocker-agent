@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react'
-import {request, messageOf, type ModelConfig} from '../api'
+import {request, messageOf, type ModelConfig} from '../../shared/api'
 
 const EMPTY: ModelConfig = {configured:false, has_key:false, base_url:'', model:''}
 function canonicalUrl(value: string) {
@@ -10,7 +10,7 @@ function canonicalUrl(value: string) {
   } catch { return value.trim() }
 }
 
-export function ModelSettings({onSaved, onBlockedChange, disabled}: {onSaved: (config: ModelConfig) => void; onBlockedChange: (blocked: boolean) => void; disabled: boolean}) {
+export function ModelSettings({onSaved, disabled = false}: {onSaved: (config: ModelConfig) => void; disabled?: boolean}) {
   const [saved, setSaved] = useState(EMPTY)
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
@@ -34,7 +34,6 @@ export function ModelSettings({onSaved, onBlockedChange, disabled}: {onSaved: (c
   const reuseKey = saved.has_key && canonicalUrl(baseUrl) === saved.base_url
   const canRequest = !!baseUrl.trim() && (!!apiKey.trim() || reuseKey)
   const dirty = !!apiKey || canonicalUrl(baseUrl) !== saved.base_url || model.trim() !== saved.model
-  useEffect(() => { onBlockedChange(dirty || !!pending) }, [dirty, pending, onBlockedChange])
 
   function discardDraft() {
     setBaseUrl(saved.base_url); setModel(saved.model); setApiKey('')

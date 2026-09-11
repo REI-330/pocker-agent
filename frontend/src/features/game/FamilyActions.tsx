@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {type ActionArguments, type Runtime} from '../api'
+import {type ActionArguments, type Runtime} from '../../shared/api'
 
 const labels: Record<string,string> = {play:'出牌',draw:'摸牌',discard:'弃牌',pass:'跳过',hit:'要牌',stand:'停牌',fold:'弃牌',check:'过牌',call:'跟注',raise:'加注',all_in:'全下',showdown:'摊牌',next_round:'下一题 / 下一轮'}
 const suitNames: Record<string,string> = {S:'黑桃 ♠', H:'红桃 ♥', D:'方块 ♦', C:'梅花 ♣'}

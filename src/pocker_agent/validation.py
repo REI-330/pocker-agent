@@ -1,16 +1,6 @@
-from __future__ import annotations
+"""Compatibility alias; import from pocker_agent.domain.validation in new code."""
 
-from typing import Any
+import sys as _sys
+from importlib import import_module as _import_module
 
-from pydantic import ValidationError
-
-from .game_rules import PlayableRule, parse_rule
-
-
-def validate_dsl(payload: dict[str, Any]) -> tuple[PlayableRule | None, list[str]]:
-    try:
-        return parse_rule(payload), []
-    except ValidationError as error:
-        return None, [f"{'.'.join(str(item) for item in issue['loc'])}: {issue['msg']}" for issue in error.errors()]
-    except ValueError as error:
-        return None, [str(error)]
+_sys.modules[__name__] = _import_module("pocker_agent.domain.validation")

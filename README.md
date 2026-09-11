@@ -17,7 +17,7 @@ Pocker Agent 是一个本机单用户 Web demo：用户用自然语言描述纸�
 | 离线导出 | 部分可用 | 阶段规则的有限固定发牌决策树，最多 2000 个决策节点 |
 | 多人联网、下注、复杂牌型 | 未实现 | 不应把代码生成实验能力当作这些功能已经支持 |
 
-已验收的细节与边界见 [PROJECT.md](PROJECT.md)、[架构说明](docs/architecture.md)、[代码生成协议](docs/generated-game-protocol.md) 和 [常见玩法审查](docs/mainstream-games-review.md)。
+已验收的细节与边界见 [PROJECT.md](PROJECT.md)、[架构说明](docs/architecture.md)、[对话生命周期架构](docs/conversation-architecture.md)、[代码生成协议](docs/generated-game-protocol.md) 和 [常见玩法审查](docs/mainstream-games-review.md)。
 
 ## 工作流
 
@@ -108,6 +108,11 @@ $env:POCKER_AGENT_MODEL = "gpt-4o-mini"
 | POST | `/api/agent/models` | 用临时配置发现模型 |
 | POST | `/api/agent/test-connection` | 用临时配置发起最小连接测试 |
 | POST | `/api/agent/turn` | 同步进行一次澄清或规则生成 |
+| POST/GET | `/api/conversations`、`/api/conversations/{id}` | 创建并恢复持久化设计会话 |
+| POST | `/api/conversations/{id}/messages`（`/turn` 兼容） | 在同一会话中进行一轮聊天澄清 |
+| POST | `/api/conversations/{id}/confirm` | 以 revision 确认当前规则提案并启动生成 |
+| POST | `/api/conversations/{id}/cancel` | 取消当前聊天或生成任务 |
+| POST | `/api/conversations/{id}/build` | 兼容旧客户端的构建查询入口 |
 | POST/GET | `/api/agent/jobs`、`/api/agent/jobs/{id}` | 创建并轮询 Agent 任务，涵盖澄清、DSL 和代码生成 |
 | POST | `/api/agent/confirm` | 校验提案并执行启动检查 |
 | POST | `/api/rules/validate` | 只校验规则 payload |

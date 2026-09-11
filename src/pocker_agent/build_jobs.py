@@ -15,6 +15,7 @@ class BuildJobs:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="game-build")
         self.lock = threading.RLock()
         self.jobs = {}
+        self.cancel_events = {}
 
     def start(self, operation):
         with self.lock:
@@ -35,11 +36,14 @@ class BuildJobs:
                 "result": None,
                 "error": None,
             }
+            self.cancel_events[id] = threading.Event()
         self.pool.submit(self._run, id, operation)
         return self.get(id)
 
     def _run(self, id, operation):
         def progress(message):
+            if self.cancel_events.get(id, threading.Event()).is_set():
+                raise ValueError("生成任务已取消")
             with self.lock:
                 self.jobs[id]["progress"].append(
                     {"message": message, "time": time.time()}
@@ -48,17 +52,25 @@ class BuildJobs:
         try:
             result = operation(progress)
             with self.lock:
-                self.jobs[id].update(status="completed", result=result)
+                if self.jobs[id]["status"] != "cancelled":
+                    self.jobs[id].update(status="completed", result=result)
         except (RuntimeError, ValueError, KeyError, TypeError, IndexError) as error:
             with self.lock:
-                self.jobs[id].update(status="failed", error=str(error)[:2500])
+                if self.jobs[id]["status"] != "cancelled":
+                    self.jobs[id].update(status="failed", error=str(error)[:2500])
         except Exception:
             logger.exception("game build failed unexpectedly")
             with self.lock:
-                self.jobs[id].update(
-                    status="failed",
-                    error="生成任务内部错误，未发布游戏；请查看后端日志",
-                )
+                if self.jobs[id]["status"] != "cancelled":
+                    self.jobs[id].update(status="failed", error="生成任务内部错误，未发布游戏；请查看后端日志")
+
+    def cancel(self, id):
+        with self.lock:
+            if id not in self.jobs:
+                raise ValueError("生成任务已失效（可能后端已重启），请重新发送玩法")
+            if self.jobs[id]["status"] == "running":
+                self.jobs[id].update(status="cancelled", error="用户取消了生成任务")
+                self.cancel_events.setdefault(id, threading.Event()).set()
 
     def get(self, id):
         with self.lock:
