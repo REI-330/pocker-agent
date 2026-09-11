@@ -48,6 +48,7 @@ def default_registry() -> ToolRegistry:
     from .holdem import BettingRoundTool, PhaseProgressTool, CommunityDealTool, AllInTool, showdown, settle_pots
     from .gameflow import WinConditionTool, SettlementTool
     from .settlement import resolve_winners, settle_scores, DoudizhuSettlementTool
+    from .state_ops import StateTool, LogicTool, PointContestTool
     def function_tool(function):
         def configure(**config):
             signature(function).bind_partial(**config)
@@ -83,4 +84,7 @@ def default_registry() -> ToolRegistry:
     registry.register("score_settle", function_tool(settle_scores))
     registry.register("doudizhu_settle", DoudizhuSettlementTool)
     registry.register("arithmetic_solver", ArithmeticSolverTool)
+    registry.register("state", StateTool)
+    registry.register("logic", LogicTool)
+    registry.register("point_contest", PointContestTool)
     return registry

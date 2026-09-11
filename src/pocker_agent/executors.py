@@ -12,6 +12,9 @@ FAMILIES = {"arithmetic": ArithmeticEngine, "blackjack": BlackjackEngine, "shedd
 
 
 def create_engine(rules, seed=0, player_count=None, tool_plan=None):
+    if tool_plan and isinstance(tool_plan, dict) and tool_plan.get("flow") is not None:
+        from .flow_runtime import FlowRuntime
+        return FlowRuntime(rules, seed=seed, player_count=player_count, tool_plan=tool_plan)
     factory = FAMILIES.get(getattr(rules, "kind", None), RuleEngine)
     if getattr(rules, "kind", None) in {"arithmetic", "blackjack", "shedding", "doudizhu", "holdem"}:
         return factory(rules, seed=seed, player_count=player_count, tool_plan=tool_plan)
@@ -23,6 +26,9 @@ def restore_engine(data):
     # must not alias the source when a later action or bot step is rejected.
     data = deepcopy(data)
     rules = parse_rule(data["rules"])
+    if data.get("executor") == "tool_flow":
+        from .flow_runtime import FlowRuntime
+        return FlowRuntime.restore(rules, data)
     if getattr(rules, "kind", None) == "doudizhu":
         from .doudizhu_engine import DoudizhuState
         from .tools import CardRef

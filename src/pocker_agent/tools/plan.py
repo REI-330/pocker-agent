@@ -10,13 +10,8 @@ class ToolInvocation(BaseModel):
     name: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
     config: dict[str, Any] = Field(default_factory=dict)
 
-class ToolAction(BaseModel):
-    """A declarative, reviewable call; arbitrary Python is never accepted."""
-    model_config = ConfigDict(extra="forbid")
-    tool: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
-    operation: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
-    args: dict[str, Any] = Field(default_factory=dict)
-    result_key: str | None = Field(default=None, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
+from .actions import ToolAction
+from .flow import FlowProgram
 
 
 class ToolPlan(BaseModel):
@@ -29,6 +24,7 @@ class ToolPlan(BaseModel):
     phases: list[str] = Field(default_factory=list, max_length=32)
     requirements: list[str] = Field(default_factory=list, max_length=64)
     actions: list[ToolAction] = Field(default_factory=list, max_length=128)
+    flow: FlowProgram | None = None
     end_conditions: list[str] = Field(default_factory=list, max_length=32)
 
     @model_validator(mode="after")
@@ -38,4 +34,6 @@ class ToolPlan(BaseModel):
             raise ValueError("tool_plan_duplicate_tool")
         if any(action.tool not in names for action in self.actions):
             raise ValueError("tool_action_not_declared")
+        if self.flow and any(node.action.tool not in names for node in self.flow.nodes.values() if node.action):
+            raise ValueError("flow_tool_not_declared")
         return self

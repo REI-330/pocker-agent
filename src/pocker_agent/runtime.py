@@ -250,6 +250,14 @@ def snapshot(session):
     tool_events = [event for event in session.engine.events
                    if event.get("event") == "tool_called"]
     composition_events = list((session.composition or {}).get("events", []))
+    if getattr(session.engine, "execution_mode", None) == "tool_flow":
+        result = {"session_id": session.id, "revision": session.revision, "seed": session.seed}
+        result.update(session.engine.view())
+        result["tool_plan"] = session.tool_plan
+        result["tool_plan_source"] = session.tool_plan_source
+        result["tool_events"] = tool_events
+        result["composition_events"] = composition_events
+        return result
     if getattr(session.engine, "kind", None) in {"doudizhu", "holdem"}:
         result = {"session_id": session.id, "revision": session.revision, "seed": session.seed}
         result.update(session.engine.view())
