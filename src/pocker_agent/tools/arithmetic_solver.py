@@ -26,5 +26,5 @@ class ArithmeticSolverTool:
             raise ToolError(f"算式结果为{value}，目标是{self.target}；请重新尝试")
         return {"correct": True, "target": self.target}
 
-    def _values(numbers):
+    def _values(self, numbers):
         return [self.rank_values.get(getattr(number, "rank", ""), getattr(number, "value", number)) for number in numbers]
