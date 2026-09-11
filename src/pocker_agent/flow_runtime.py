@@ -60,6 +60,9 @@ class FlowRuntime:
     def events(self):
         return self.layer.context.events
 
+    def emit(self, event, **payload):
+        return self.layer.context.emit(event, **payload)
+
     @property
     def state(self):
         state = self.layer.context.state
@@ -156,6 +159,15 @@ class FlowRuntime:
             shown = hand if reveal or i == 0 else hand[:visible[i]]
             players.append({"id": f"player-{i + 1}", "hand": [c.as_dict() for c in shown],
                             "hidden_count": len(hand) - len(shown), "score": state.get("scores", [0] * self.plan.players)[i]})
+        numbers = state.get("numbers")
+        if numbers is None:
+            rank_values = next((tool.get("config", {}).get("rank_values", {}) for tool in self.tool_plan.get("tools", [])
+                                if tool.get("name") == "arithmetic_solver"), {})
+            numbers = [rank_values.get(getattr(card, "rank", ""), getattr(card, "value", card)) for card in state.get("table", [])]
+        elif numbers and isinstance(numbers[0], dict):
+            rank_values = next((tool.get("config", {}).get("rank_values", {}) for tool in self.tool_plan.get("tools", [])
+                                if tool.get("name") == "arithmetic_solver"), {})
+            numbers = [rank_values.get(item.get("rank", ""), item.get("value")) for item in numbers]
         return {"kind": self.kind, "execution_mode": self.execution_mode, "flow_node": self.pc,
                 "round": state.get("round", 1), "max_rounds": state.get("max_rounds", 1),
                 "phase": state.get("phase", self.pc), "current_player": f"player-{self.state.current_player + 1}",
@@ -163,4 +175,5 @@ class FlowRuntime:
                 "winners": [f"player-{i + 1}" for i in state.get("winners", [])],
                 "finish_reason": state.get("finish_reason", ""), "legal_actions": self.legal_actions(),
                 "players": players, "table": [], "deck_remaining": len(state.get("stock", [])),
-                "feedback": state.get("feedback", ""), "events": self.events[-100:]}
+                "feedback": state.get("feedback", ""), "numbers": numbers,
+                "target": state.get("target"), "events": self.events[-100:]}
