@@ -112,13 +112,15 @@ class FlowRuntime:
     def step(self, action=None, card_index=0, **payload):
         actions = self.legal_actions()
         action = action or (actions[0] if actions else None)
-        if action not in actions:
+        matched = action if action in actions else next((pattern for pattern in actions
+                         if pattern.endswith("*") and action.startswith(pattern[:-1])), None)
+        if matched is None:
             raise ToolError("illegal_action")
         backup, previous = deepcopy(self.layer), self.pc
         try:
             self.layer.context.state["input"] = {"expression": "", "declared_suit": "", "amount": None,
                                                    **payload, "action": action, "card_index": card_index}
-            self.pc = self.plan.flow.nodes[self.pc].inputs[action]
+            self.pc = self.plan.flow.nodes[self.pc].inputs[matched]
             self._advance()
         except Exception:
             self.layer, self.pc = backup, previous
