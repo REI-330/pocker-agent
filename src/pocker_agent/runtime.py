@@ -66,6 +66,15 @@ class ToolPlanRuntime:
                 self.layer.plan["actions"] = original
         return RuleExecutor(self.layer).run()
 
+    def create_executor(self, rules, *, seed: int, player_count: int | None = None):
+        """Create the current host executor behind the ToolPlan boundary.
+
+        Keeping construction here makes the migration seam explicit: new
+        generic plans can replace this factory without changing the API or
+        persistence lifecycle.
+        """
+        return create_engine(rules, seed=seed, player_count=player_count, tool_plan=self.plan)
+
     def validate_events(self, events: list[dict[str, Any]]) -> None:
         """Reject host execution that calls tools absent from the plan."""
         declared = self.declared_tools
@@ -166,7 +175,7 @@ class RuntimeStore:
         if not rules.players.min_players <= plan["players"] <= rules.players.max_players:
             raise ValueError("tool_plan_player_count_mismatch")
         composition = tool_runtime.compose()
-        session = RuntimeSession(uuid.uuid4().hex, create_engine(rules, seed=seed, player_count=player_count, tool_plan=plan), seed=seed,
+        session = RuntimeSession(uuid.uuid4().hex, tool_runtime.create_executor(rules, seed=seed, player_count=player_count), seed=seed,
                                  tool_plan=plan, composition=composition, tool_runtime=tool_runtime,
                                  tool_plan_source=source)
         tool_runtime.start(session.engine)
