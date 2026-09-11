@@ -85,16 +85,11 @@ class HoldemEngine:
         self.events.append({"event": "tool_called", "tool": tool, "operation": operation})
 
     def _betting_tool(self) -> BettingRoundTool:
-        return BettingRoundTool(
-            self.state.stacks,
-            self.state.committed,
-            self.state.hand_committed,
-            set(self.state.folded),
-            self.state.current_player,
-            min_raise=self.rules.big_blind,
-            acted=set(getattr(self.state, "acted", set())),
-            last_raise=getattr(self.state, "last_raise", 0),
-        )
+        return self._registry.create(
+            "betting_round", stacks=self.state.stacks, committed=self.state.committed,
+            hand_committed=self.state.hand_committed, folded=set(self.state.folded),
+            current_player=self.state.current_player, min_raise=self.rules.big_blind,
+            acted=set(getattr(self.state, "acted", set())), last_raise=getattr(self.state, "last_raise", 0))
 
     def _sync_betting_state(self, tool: BettingRoundTool) -> None:
         self.state.stacks = list(tool.stacks)
@@ -132,7 +127,8 @@ class HoldemEngine:
 
     def _advance_street(self):
         phases = list(self.rules.streets)
-        phase = PhaseProgressTool(phases, phases.index(self.state.street))
+        self._phase.index = phases.index(self.state.street)
+        phase = self._phase
         if phase.finished(): return self._finish()
         next_state = phase.advance()
         self._tool_event("phase_progress", "advance")
