@@ -37,6 +37,20 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
                           {"name": "doudizhu_hand_rank", "config": {}},
                           {"name": "climb_beats", "config": {}}, {"name": "doudizhu_settle", "config": {"player_count": 3}},
                           {"name": "turn_order", "config": {"players": [f"player-{i + 1}" for i in range(base["players"])]}}, {"name": "winner_resolve"}, {"name": "score_settle"}]
+        base["tools"].extend([{"name": "doudizhu_turn", "config": {"bidding_values": rules.bidding_values}}, {"name": "state"}])
+        base["flow"] = {"entry": "deal", "initial": {"finished": False, "winners": [], "current_player": 0, "phase": "bidding", "bid": 0, "landlord": None, "scores": [0, 0, 0]}, "nodes": {
+            "deal": {"kind": "call", "next": "init", "action": {"tool": "deck", "operation": "deal", "args": {"seed": "$state.seed", "hands": 3, "cards_each": 17, "kitty": 3}, "result_key": "deal"}},
+            "init": {"kind": "call", "next": "wait_bid", "action": {"tool": "state", "operation": "update", "args": {"state": "$state", "values": {"hands": "$state.deal.hands", "stock": "$state.deal.deck", "kitty": "$state.deal.kitty"}}}},
+            "wait_bid": {"kind": "wait", "inputs": {"bid:*": "turn_bid"}},
+            "turn_bid": {"kind": "call", "next": "bid_branch", "action": {"tool": "doudizhu_turn", "operation": "play", "args": {"state": "$state", "action": "$state.input.action"}, "result_key": "turn_result"}},
+            "bid_branch": {"kind": "branch", "value": "$state.landlord", "cases": [{"value": None, "target": "wait_bid"}], "next": "wait_play"},
+            "wait_play": {"kind": "wait", "inputs": {"play:*": "turn_play", "pass": "turn_play"}},
+            "turn_play": {"kind": "call", "next": "play_branch", "action": {"tool": "doudizhu_turn", "operation": "play", "args": {"state": "$state", "action": "$state.input.action"}, "result_key": "turn_result"}},
+            "play_branch": {"kind": "branch", "value": "$state.finished", "cases": [{"value": True, "target": "settle"}], "next": "wait_play"},
+            "settle": {"kind": "call", "next": "finish", "action": {"tool": "doudizhu_settle", "operation": "settle", "args": {"base_bid": "$state.bid", "landlord": "$state.landlord", "winner": "$state.winners.0"}, "result_key": "scores"}},
+            "finish": {"kind": "call", "next": "end", "action": {"tool": "state", "operation": "update", "args": {"state": "$state", "values": {"phase": "finished"}}}},
+            "end": {"kind": "end"},
+        }}
     elif kind == "shedding":
         players = [f"player-{i + 1}" for i in range(base["players"])]
         hand_size = getattr(rules.players, "starting_hand_size", 5)

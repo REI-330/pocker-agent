@@ -5,6 +5,8 @@ import operator
 from .core import ToolError, DeckTool
 from ..arithmetic import solve
 from .matching import matches
+from .doudizhu import classify
+from .climbing import climb_beats
 
 
 class StateTool:
@@ -128,3 +130,37 @@ class SheddingTurnTool:
             raise ToolError("illegal_shedding_action")
         state["current_player"] = (current + 1) % len(hands)
         return {"action": action, "finished": False, "player": current}
+
+
+class DoudizhuTurnTool:
+    """Handle one landlord bid or card-combination turn in shared state."""
+    def __init__(self, bidding_values=(0, 1, 2, 3)):
+        self.bidding_values = tuple(bidding_values)
+
+    def play(self, state, action):
+        current = state["current_player"]
+        if action.startswith("bid:"):
+            value = int(action.split(":", 1)[1])
+            if value not in self.bidding_values: raise ToolError("invalid_bid")
+            state["bid"] = max(state.get("bid", 0), value)
+            if value == max(self.bidding_values) or current == len(state["hands"]) - 1:
+                state["landlord"] = current
+                state["hands"][current].extend(state.get("kitty", [])); state["kitty"] = []
+            else: state["current_player"] = (current + 1) % len(state["hands"])
+            return {"action": action, "finished": False, "player": current}
+        if state.get("landlord") is None: raise ToolError("bidding_not_finished")
+        if action == "pass":
+            state["current_player"] = (current + 1) % len(state["hands"])
+            return {"action": action, "finished": False, "player": current}
+        if not action.startswith("play:"): raise ToolError("illegal_doudizhu_action")
+        indexes = sorted((int(v) for v in action.split(":", 1)[1].split(",")), reverse=True)
+        hand = state["hands"][current]
+        if not indexes or any(i < 0 or i >= len(hand) for i in indexes) or len(set(indexes)) != len(indexes): raise ToolError("card_index_out_of_range")
+        selected = [hand[i] for i in reversed(indexes)]
+        candidate = classify(selected); previous = state.get("last_play")
+        if previous is not None and not climb_beats({"kind": candidate.kind, "rank": candidate.rank, "length": candidate.length}, previous): raise ToolError("play_does_not_beat")
+        for i in indexes: hand.pop(i)
+        state["last_play"] = {"kind": candidate.kind, "rank": candidate.rank, "length": candidate.length}
+        state["current_player"] = (current + 1) % len(state["hands"])
+        if not hand: state.update(finished=True, winners=[current], finish_reason="hand_empty")
+        return {"action": action, "finished": state.get("finished", False), "player": current}

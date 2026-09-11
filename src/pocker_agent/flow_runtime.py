@@ -183,6 +183,7 @@ class FlowRuntime:
                 "winners": [f"player-{i + 1}" for i in state.get("winners", [])],
                 "finish_reason": state.get("finish_reason", ""), "legal_actions": self.legal_actions(),
                 "players": players, "table": [card.as_dict() for card in state.get("table", [])],
+                "kitty": [card.as_dict() for card in state.get("kitty", [])] if state.get("landlord") is not None else [],
                 "deck_remaining": len(state.get("stock", [])),
                 "feedback": state.get("feedback", ""), "numbers": numbers,
                 "target": state.get("target"), "events": self.events[-100:]}

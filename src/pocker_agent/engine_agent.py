@@ -105,7 +105,7 @@ class EngineAgent:
             "arithmetic": {"deck", "arithmetic_deal", "arithmetic_solver", "state", "score_settle"},
             "blackjack": {"deck", "hand_rank", "state", "logic", "point_contest", "score_settle", "winner_resolve"},
             "shedding": {"deck", "draw_discard", "card_match", "turn_order"},
-            "doudizhu": {"deck", "doudizhu_hand_rank", "climb_beats", "turn_order"},
+            "doudizhu": {"deck", "doudizhu_hand_rank", "climb_beats", "turn_order", "doudizhu_turn", "state"},
             "holdem": {"deck", "betting_round", "phase_progress", "community_deal", "all_in", "showdown", "settle_pots"},
         }.get(getattr(rules, "kind", ""), {"deck"})
 
