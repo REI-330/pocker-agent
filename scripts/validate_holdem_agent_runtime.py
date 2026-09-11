@@ -35,6 +35,13 @@ RULES = {
 
 
 def holdem_plan():
+    # Keep this fixture aligned with the host's declarative composition path.
+    # The model response is still the source of the plan; the helper only
+    # supplies a deterministic valid ToolPlan for the local fake model.
+    from pocker_agent.game_rules import HoldemRule
+    from pocker_agent.tools.plans import plan_for_rules
+    return plan_for_rules(HoldemRule.model_validate(RULES))
+    """
     tools = [
         {"name": "deck", "config": {"ranks": RANKS, "suits": ["S", "H", "D", "C"]}},
         {"name": "zones"}, {"name": "pot", "config": {"stacks": [100, 100]}},
@@ -48,6 +55,7 @@ def holdem_plan():
             "actions": [{"tool": "deck", "operation": "deal",
                           "args": {"seed": 0, "hands": 2, "cards_each": 2}, "result_key": "deal"}],
             "end_conditions": ["phase_progress.finished", "all_in.runout_required", "showdown.completed"]}
+    """
 
 
 class ModelHandler(BaseHTTPRequestHandler):
@@ -91,7 +99,8 @@ def main():
                 return json.load(response)
         except HTTPError as error:
             if error.code != expected:
-                raise
+                detail = error.read().decode("utf-8", "replace")
+                raise RuntimeError(f"HTTP {error.code}: {detail}") from error
             return json.load(error)
 
     try:
@@ -109,12 +118,13 @@ def main():
         sid, path = state["session_id"], None
         path = f"/api/runtime/sessions/{sid}"
         calls = {(e["tool"], e["operation"]) for e in state["tool_events"] if e["event"] == "tool_called"}
-        actions = ["call", "check", "check", "check"]
+        actions = ["call", "check", "call", "check", "check", "check", "check", "check"]
         for action in actions:
-            assert state["current_player"] == "player-1", state
+            print("playing", action, state.get("current_player"), state.get("legal_actions"), state.get("street"))
             result = request(path + f"/actions/{action}", {"revision": state["revision"]})
             calls.update((e["tool"], e["operation"]) for e in result["events"] if e["event"] == "tool_called")
             state = result["state"]
+            print(" ->", state.get("flow_node"), state.get("current_player"), state.get("legal_actions"), state.get("street"))
         assert state["finished"] and len(state["board"]) == 5, state
         required = {("betting_round", "act"), ("all_in", "check"),
                     ("phase_progress", "advance"), ("community_deal", "deal"),

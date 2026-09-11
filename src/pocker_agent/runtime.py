@@ -228,13 +228,13 @@ class RuntimeStore:
                                      session.tool_plan_source)
             start = len(session.engine.events)
             engine_kind = getattr(session.engine, "kind", None) or getattr(session.engine.rules, "kind", None)
-            if engine_kind == "holdem":
+            if getattr(session.engine, "execution_mode", None) == "tool_flow":
+                operation = lambda: session.engine.step(action, card_index, expression=expression,
+                                                        declared_suit=declared_suit, amount=amount)
+            elif engine_kind == "holdem":
                 operation = lambda: session.engine.step(action, card_index, expression=expression, declared_suit=declared_suit, amount=amount)
             elif engine_kind in {"arithmetic", "blackjack", "shedding"}:
                 operation = lambda: session.engine.step(action, card_index, expression=expression, declared_suit=declared_suit)
-            elif getattr(session.engine, "execution_mode", None) == "tool_flow":
-                operation = lambda: session.engine.step(action, card_index, expression=expression,
-                                                        declared_suit=declared_suit, amount=amount)
             else:
                 operation = lambda: session.engine.step(action, card_index)
             event = tool_runtime.turn(session.engine, operation)
