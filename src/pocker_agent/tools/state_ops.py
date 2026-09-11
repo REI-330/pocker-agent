@@ -145,6 +145,7 @@ class DoudizhuTurnTool:
             state["bid"] = max(state.get("bid", 0), value)
             if value == max(self.bidding_values) or current == len(state["hands"]) - 1:
                 state["landlord"] = current
+                state["phase"] = "play"
                 state["hands"][current].extend(state.get("kitty", [])); state["kitty"] = []
             else: state["current_player"] = (current + 1) % len(state["hands"])
             return {"action": action, "finished": False, "player": current}
