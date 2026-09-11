@@ -41,6 +41,8 @@ class HoldemEngine:
         self._all_in = self._registry.create("all_in")
         self._phase = self._registry.create("phase_progress", phases=list(rules.streets))
         self._community = self._registry.create("community_deal", burn=True)
+        self._showdown = self._registry.create("showdown")
+        self._settle_pots = self._registry.create("settle_pots")
 
     def setup(self):
         if self.state is not None: raise RuntimeError("game_already_started")
@@ -157,7 +159,7 @@ class HoldemEngine:
         else:
             if len(self.state.board) < 5:
                 raise ValueError("showdown_requires_five_board_cards")
-            result = showdown(self.state.hands, self.state.board, active)
+            result = self._showdown(hands=self.state.hands, board=self.state.board, active=active)
             self._tool_event("showdown", "call")
             ranks = result["ranks"]
             winners = list(result["winners"])
@@ -177,7 +179,8 @@ class HoldemEngine:
                 if eligible:
                     best = max(ranks[i] for i in eligible)
                     pot_winners[index] = [i for i in eligible if ranks[i] == best]
-        settlement = settle_pots(self.state.stacks, self.state.hand_committed, pot_winners, self.state.folded)
+        settlement = self._settle_pots(stacks=self.state.stacks, hand_committed=self.state.hand_committed,
+                                       winners=pot_winners, folded=self.state.folded)
         self._tool_event("settle_pots", "call")
         self.state.stacks = list(settlement["stacks"])
         self.state.finished, self.state.winners = True, winners
