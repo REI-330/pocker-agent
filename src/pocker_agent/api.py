@@ -184,6 +184,8 @@ def create_app(path: Path | None = None, vault=None):
                 checked = ToolPlan.model_validate(resolved_plan)
                 if checked.game_kind != getattr(rules, "kind", "legacy"):
                     raise ValueError("tool_plan_game_kind_mismatch")
+                if getattr(rules, "kind", "") in {"arithmetic", "blackjack", "shedding", "doudizhu", "holdem"} and checked.flow is None:
+                    raise ValueError("tool_plan_flow_required:" + rules.kind)
                 missing = sorted(EngineAgent.required_tools(rules) - {item.name for item in checked.tools})
                 if missing:
                     raise ValueError("tool_plan_missing_required:" + ",".join(missing))
