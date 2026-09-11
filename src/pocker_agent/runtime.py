@@ -232,6 +232,9 @@ class RuntimeStore:
                 operation = lambda: session.engine.step(action, card_index, expression=expression, declared_suit=declared_suit, amount=amount)
             elif engine_kind in {"arithmetic", "blackjack", "shedding"}:
                 operation = lambda: session.engine.step(action, card_index, expression=expression, declared_suit=declared_suit)
+            elif getattr(session.engine, "execution_mode", None) == "tool_flow":
+                operation = lambda: session.engine.step(action, card_index, expression=expression,
+                                                        declared_suit=declared_suit, amount=amount)
             else:
                 operation = lambda: session.engine.step(action, card_index)
             event = tool_runtime.turn(session.engine, operation)
