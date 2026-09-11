@@ -35,12 +35,17 @@ class HoldemEngine:
         self.tool_plan = tool_plan or {}
         self._declared_tools = {item.get("name") for item in self.tool_plan.get("tools", [])
                                 if isinstance(item, dict)}
+        from .tools.registry import default_registry
+        self._registry = default_registry()
+        self._deck = self._registry.create("deck", ranks=rules.deck.ranks, suits=rules.deck.suits)
+        self._all_in = self._registry.create("all_in")
+        self._phase = self._registry.create("phase_progress", phases=list(rules.streets))
+        self._community = self._registry.create("community_deal", burn=True)
 
     def setup(self):
         if self.state is not None: raise RuntimeError("game_already_started")
         n = self.player_count
-        deck_tool = DeckTool(self.rules.deck.ranks, self.rules.deck.suits)
-        dealt = deck_tool.deal(self.seed, n, 2, 0).value
+        dealt = self._deck.deal(self.seed, n, 2, 0).value
         hands = dealt["hands"]
         cards = dealt["deck"]
         self._tool_event("deck", "deal")
@@ -113,7 +118,7 @@ class HoldemEngine:
         self._tool_event("betting_round", "act")
         self.events.append({"event":"action", "player":p, "action":action, "street":self.state.street})
         if len(self._active()) <= 1: return self._finish()
-        all_in = AllInTool().check(self.state.stacks, self.state.folded)
+        all_in = self._all_in.check(self.state.stacks, self.state.folded)
         self._tool_event("all_in", "check")
         if all_in["runout_required"]:
             while not self.state.finished and self.state.street != "river":
@@ -129,7 +134,7 @@ class HoldemEngine:
         if phase.finished(): return self._finish()
         next_state = phase.advance()
         self._tool_event("phase_progress", "advance")
-        CommunityDealTool(burn=True).deal(self.state.deck, self.state.board, next_state["phase"])
+        self._community.deal(self.state.deck, self.state.board, next_state["phase"])
         self._tool_event("community_deal", "deal")
         self.state.street = next_state["phase"]
         self.state.committed = [0] * len(self.state.hands)
