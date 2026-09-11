@@ -176,7 +176,7 @@ class FlowRuntime:
             rank_values = next((tool.get("config", {}).get("rank_values", {}) for tool in self.tool_plan.get("tools", [])
                                 if tool.get("name") == "arithmetic_solver"), {})
             numbers = [rank_values.get(item.get("rank", ""), item.get("value")) for item in numbers]
-        return {"kind": self.kind, "execution_mode": self.execution_mode, "flow_node": self.pc,
+        result = {"kind": self.kind, "execution_mode": self.execution_mode, "flow_node": self.pc,
                 "round": state.get("round", 1), "max_rounds": state.get("max_rounds", 1),
                 "phase": state.get("phase", self.pc), "current_player": f"player-{self.state.current_player + 1}",
                 "human_player": "player-1", "finished": self.state.finished,
@@ -187,3 +187,13 @@ class FlowRuntime:
                 "deck_remaining": len(state.get("stock", [])),
                 "feedback": state.get("feedback", ""), "numbers": numbers,
                 "target": state.get("target"), "events": self.events[-100:]}
+        # Poker flows expose the same table ledger fields as legacy runtimes.
+        # Keeping these in the generic view lets a UI render any betting game
+        # without knowing the concrete implementation behind its tools.
+        for key in ("pot", "board", "stacks", "committed", "hand_committed", "folded", "street", "current_bet", "side_pots"):
+            if key in state:
+                value = state[key]
+                if key in {"board"}:
+                    value = [card.as_dict() for card in value]
+                result[key] = value
+        return result

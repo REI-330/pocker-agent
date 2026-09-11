@@ -106,7 +106,7 @@ class EngineAgent:
             "blackjack": {"deck", "hand_rank", "state", "logic", "point_contest", "score_settle", "winner_resolve"},
             "shedding": {"deck", "draw_discard", "card_match", "turn_order"},
             "doudizhu": {"deck", "doudizhu_hand_rank", "climb_beats", "turn_order", "doudizhu_turn", "state"},
-            "holdem": {"deck", "betting_round", "phase_progress", "community_deal", "all_in", "showdown", "settle_pots"},
+            "holdem": {"deck", "betting_round", "phase_progress", "community_deal", "all_in", "showdown", "settle_pots", "holdem_turn", "state"},
         }.get(getattr(rules, "kind", ""), {"deck"})
 
     @staticmethod
