@@ -107,13 +107,23 @@ class FlowRuntime:
 
     def legal_actions(self):
         node = self.plan.flow.nodes[self.pc]
-        return list(node.inputs) if self.started and node.kind == "wait" and not self.state.finished else []
+        if not self.started or node.kind != "wait" or self.state.finished:
+            return []
+        if node.available_actions is None:
+            return list(node.inputs)
+        actions = RuleExecutor(self.layer)._resolve(node.available_actions)
+        if not isinstance(actions, list) or any(action not in node.inputs for action in actions):
+            raise ToolError("flow_invalid_available_actions")
+        return actions
 
     def step(self, action=None, card_index=0, **payload):
         actions = self.legal_actions()
-        action = action or (actions[0] if actions else None)
+        if action is None:
+            node = self.plan.flow.nodes[self.pc]
+            action = (RuleExecutor(self.layer)._resolve(node.default_action)
+                      if node.default_action is not None else (actions[0] if actions else None))
         matched = action if action in actions else next((pattern for pattern in actions
-                         if pattern.endswith("*") and action.startswith(pattern[:-1])), None)
+                         if pattern.endswith("*") and isinstance(action, str) and action.startswith(pattern[:-1])), None)
         if matched is None:
             raise ToolError("illegal_action")
         backup, previous = deepcopy(self.layer), self.pc

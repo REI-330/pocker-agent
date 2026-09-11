@@ -41,21 +41,6 @@ def holdem_plan():
     from pocker_agent.game_rules import HoldemRule
     from pocker_agent.tools.plans import plan_for_rules
     return plan_for_rules(HoldemRule.model_validate(RULES))
-    """
-    tools = [
-        {"name": "deck", "config": {"ranks": RANKS, "suits": ["S", "H", "D", "C"]}},
-        {"name": "zones"}, {"name": "pot", "config": {"stacks": [100, 100]}},
-        {"name": "betting_round", "config": {"stacks": [100, 100], "min_raise": 10}},
-        {"name": "phase_progress", "config": {"phases": RULES["streets"]}},
-        {"name": "community_deal"}, {"name": "all_in"}, {"name": "showdown"},
-        {"name": "settle_pots"}, {"name": "hand_rank", "config": {"best_of": 7}},
-    ]
-    return {"schema_version": "1.0", "game_kind": "holdem", "players": 2,
-            "tools": tools, "phases": RULES["streets"], "requirements": [],
-            "actions": [{"tool": "deck", "operation": "deal",
-                          "args": {"seed": 0, "hands": 2, "cards_each": 2}, "result_key": "deal"}],
-            "end_conditions": ["phase_progress.finished", "all_in.runout_required", "showdown.completed"]}
-    """
 
 
 class ModelHandler(BaseHTTPRequestHandler):
@@ -118,17 +103,22 @@ def main():
         sid, path = state["session_id"], None
         path = f"/api/runtime/sessions/{sid}"
         calls = {(e["tool"], e["operation"]) for e in state["tool_events"] if e["event"] == "tool_called"}
-        actions = ["call", "check", "call", "check", "check", "check", "check", "check"]
-        for action in actions:
-            print("playing", action, state.get("current_player"), state.get("legal_actions"), state.get("street"))
+        actions = []
+        for _ in range(100):
+            if state["finished"]:
+                break
+            assert state["execution_mode"] == "tool_flow", state
+            assert state["current_player"] == "player-1", state
+            action = "check" if "check" in state["legal_actions"] else "call"
+            actions.append(action)
             result = request(path + f"/actions/{action}", {"revision": state["revision"]})
             calls.update((e["tool"], e["operation"]) for e in result["events"] if e["event"] == "tool_called")
             state = result["state"]
-            print(" ->", state.get("flow_node"), state.get("current_player"), state.get("legal_actions"), state.get("street"))
+            assert sum(state["stacks"]) + state["pot"] == 200, state
         assert state["finished"] and len(state["board"]) == 5, state
-        required = {("betting_round", "act"), ("all_in", "check"),
-                    ("phase_progress", "advance"), ("community_deal", "deal"),
-                    ("showdown", "call"), ("settle_pots", "call")}
+        required = {("betting_round", "transition"), ("all_in", "check"),
+                    ("phase_progress", "successor"), ("community_deal", "deal"),
+                    ("showdown", "call"), ("pot_winners", "call"), ("settle_pots", "call")}
         assert required <= calls, sorted(calls)
         artifact = ROOT / "artifacts" / "holdem-agent-runtime-http.json"
         artifact.parent.mkdir(exist_ok=True)

@@ -82,6 +82,8 @@ class BettingRoundTool:
         if not actionable:
             return True
         current_bet = self.current_bet()
+        if len(actionable) == 1 and self.committed[actionable[0]] >= current_bet:
+            return True
         return all(i in self.acted and self.committed[i] == current_bet for i in actionable)
 
     def _next_actionable(self, after: int) -> int:
@@ -134,7 +136,7 @@ class BettingRoundTool:
                 raise ToolError("check_requires_no_call")
             self.acted.add(p)
         elif action == "call":
-            self._commit_to(p, before_bet)
+            self._commit_to(p, min(before_bet, self.committed[p] + self.stacks[p]))
             self.acted.add(p)
         elif action == "raise":
             target = before_bet + self.min_raise if amount is None else amount
@@ -182,7 +184,32 @@ class BettingRoundTool:
             "last_raise": self.last_raise,
             "complete": self.is_complete(),
             "legal_actions": self.legal_actions(),
+            "default_action": self.legal_actions()[0] if self.legal_actions() else None,
+            "pot": sum(self.hand_committed),
         }
+
+    def _from_state(self, state: dict[str, Any]) -> BettingRoundTool:
+        return BettingRoundTool(
+            stacks=state["stacks"], committed=state["committed"],
+            hand_committed=state["hand_committed"], folded=set(state["folded"]),
+            current_player=state["current_player"], min_raise=self.min_raise,
+            acted=set(state["acted"]), last_raise=state["last_raise"],
+        )
+
+    def inspect(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Query a persisted ledger without retaining mutable tool state."""
+        return self._from_state(state).state()
+
+    def transition(self, state: dict[str, Any], action: str, amount: int | None = None) -> dict[str, Any]:
+        """Apply one decision only; the calling plan owns phase and outcome routing."""
+        return self._from_state(state).act(action, amount)
+
+    def start_round(self, state: dict[str, Any], first_seat: int = 0) -> dict[str, Any]:
+        betting = self._from_state(state)
+        betting._check_player(first_seat)
+        candidates = [(first_seat + offset) % len(betting.stacks) for offset in range(len(betting.stacks))]
+        first = next((i for i in candidates if i not in betting.folded and betting.stacks[i] > 0), first_seat)
+        return betting.reset(current_player=first)
 
 
 @dataclass
@@ -217,6 +244,16 @@ class PhaseProgressTool:
 
     def state(self) -> dict[str, Any]:
         return {"phase": self.current(), "index": self.index, "phases": list(self.phases), "finished": self.finished()}
+
+    def inspect(self, current: str) -> dict[str, Any]:
+        if current not in self.phases:
+            raise ToolError("unknown_phase")
+        return PhaseProgressTool(self.phases, self.phases.index(current)).state()
+
+    def successor(self, current: str) -> dict[str, Any]:
+        if current not in self.phases:
+            raise ToolError("unknown_phase")
+        return PhaseProgressTool(self.phases, self.phases.index(current)).advance()
 
 
 @dataclass

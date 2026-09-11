@@ -13,34 +13,8 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
         from ..flow_plans.blackjack import blackjack_plan
         return blackjack_plan(rules)
     elif kind == "holdem":
-        players = [f"player-{i + 1}" for i in range(rules.players.max_players)]
-        base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
-                          {"name": "zones"},
-                          {"name": "pot", "config": {"stacks": [rules.starting_chips] * rules.players.max_players}},
-                          {"name": "betting_round", "config": {"stacks": [rules.starting_chips] * rules.players.max_players,
-                                                                       "min_raise": rules.big_blind}},
-                          {"name": "phase_progress", "config": {"phases": list(rules.streets)}},
-                          {"name": "community_deal"}, {"name": "all_in"},
-                          {"name": "showdown"}, {"name": "settle_pots"},
-                          {"name": "hand_rank", "config": {"best_of": 7}}]
-        base["tools"].extend([{"name": "holdem_turn", "config": {"streets": rules.streets, "min_raise": rules.big_blind}}, {"name": "state"}])
-        base["flow"] = {"entry": "deal", "initial": {"finished": False, "winners": [], "current_player": 2 % len(players), "street": "preflop", "board": [], "folded": [], "acted": [], "last_raise": 0, "phase": "preflop"}, "nodes": {
-            "deal": {"kind": "call", "next": "init", "action": {"tool": "deck", "operation": "deal", "args": {"seed": "$state.seed", "hands": len(players), "cards_each": 2}, "result_key": "deal"}},
-            "init": {"kind": "call", "next": "wait", "action": {"tool": "state", "operation": "update", "args": {"state": "$state", "values": {"hands": "$state.deal.hands", "deck": "$state.deal.deck", "stacks": [rules.starting_chips] * len(players), "committed": [rules.small_blind, rules.big_blind] + [0] * (len(players) - 2), "hand_committed": [rules.small_blind, rules.big_blind] + [0] * (len(players) - 2), "pot": rules.small_blind + rules.big_blind}}}},
-            "wait": {"kind": "wait", "inputs": {"fold": "turn", "check": "turn", "call": "turn", "raise": "turn", "all_in": "turn", "showdown": "turn"}},
-            "turn": {"kind": "call", "next": "branch", "action": {"tool": "holdem_turn", "operation": "act", "args": {"state": "$state", "action": "$state.input.action", "amount": "$state.input.amount"}, "result_key": "turn_result"}},
-            "branch": {"kind": "branch", "value": "$state.finished", "cases": [{"value": True, "target": "end"}], "next": "wait"},
-            "end": {"kind": "end"},
-        }}
-        base["actions"] = [{"tool": "deck", "operation": "deal",
-                             "args": {"seed": 0, "hands": len(players), "cards_each": 2},
-                             "result_key": "deal"}]
-        for index, player in enumerate(players):
-            base["actions"].append({"tool": "zones", "operation": "create",
-                                     "args": {"name": player, "cards": f"$state.deal.hands.{index}", "visible_to": [player]}})
-        base["actions"].append({"tool": "zones", "operation": "create",
-                                 "args": {"name": "community", "cards": "$state.deal.kitty", "visible_to": ["*"]}})
-        base["end_conditions"] = ["phase_progress.finished", "all_in.runout_required", "showdown.completed"]
+        from ..flow_plans.holdem import holdem_plan
+        return holdem_plan(rules)
     elif kind == "doudizhu":
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "doudizhu_hand_rank", "config": {}},

@@ -34,7 +34,7 @@ class ToolRegistry:
 def default_registry() -> ToolRegistry:
     from .core import DeckTool
     from .arithmetic_solver import ArithmeticSolverTool
-    from .betting import PotTool
+    from .betting import PotTool, resolve_pot_winners
     from .ranking import HandRankTool, best_of
     from .doudizhu import classify
     from .zones import ZoneTool
@@ -47,7 +47,6 @@ def default_registry() -> ToolRegistry:
     from .triggers import TriggerTool
     from .holdem import BettingRoundTool, PhaseProgressTool, CommunityDealTool, AllInTool, showdown, settle_pots
     from .gameflow import WinConditionTool, SettlementTool
-    from .holdem_flow import HoldemTurnTool
     from .settlement import resolve_winners, settle_scores, DoudizhuSettlementTool
     from .state_ops import StateTool, LogicTool, PointContestTool, DealerPolicyTool, ArithmeticDealTool, SheddingTurnTool, DoudizhuTurnTool
     def function_tool(function):
@@ -92,5 +91,5 @@ def default_registry() -> ToolRegistry:
     registry.register("arithmetic_deal", ArithmeticDealTool)
     registry.register("shedding_turn", SheddingTurnTool)
     registry.register("doudizhu_turn", DoudizhuTurnTool)
-    registry.register("holdem_turn", HoldemTurnTool)
+    registry.register("pot_winners", function_tool(resolve_pot_winners))
     return registry

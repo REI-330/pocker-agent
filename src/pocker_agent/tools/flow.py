@@ -20,6 +20,8 @@ class FlowNode(BaseModel):
     value: Any = None
     cases: list[FlowCase] = Field(default_factory=list, max_length=32)
     inputs: dict[str, str] = Field(default_factory=dict)
+    available_actions: Any = None
+    default_action: Any = None
 
     @model_validator(mode="after")
     def complete_node(self):

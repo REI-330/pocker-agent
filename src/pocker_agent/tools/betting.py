@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .core import ToolError
 
@@ -73,4 +74,29 @@ class PotTool:
         if sum(awards) != sum(self.committed):
             raise ToolError("chip_conservation_failed")
         return awards
+
+
+def resolve_pot_winners(contributions: list[int], folded: list[int], eligible: list[int],
+                        ranks: dict[int, Any] | None = None) -> dict[int, list[int]]:
+    """Select eligible winners separately for each contribution tier.
+
+    Ranking is supplied by another tool. A sole survivor needs no hand rank.
+    This operation does not pay chips or advance the game.
+    """
+    pots = PotTool([0] * len(contributions), contributions).pots(set(folded))
+    result = {}
+    for index, pot in enumerate(pots):
+        if pot["refund_to"] is not None:
+            continue
+        candidates = [i for i in pot["eligible_players"] if i in eligible]
+        if not candidates:
+            raise ToolError("pot_has_no_eligible_winner")
+        if ranks is None:
+            if len(candidates) != 1:
+                raise ToolError("contested_pot_requires_ranks")
+            result[index] = candidates
+        else:
+            best = max(ranks[i] for i in candidates)
+            result[index] = [i for i in candidates if ranks[i] == best]
+    return result
 
