@@ -2,7 +2,8 @@
 from copy import deepcopy
 import operator
 
-from .core import ToolError
+from .core import ToolError, DeckTool
+from ..arithmetic import solve
 
 
 class StateTool:
@@ -75,3 +76,21 @@ class DealerPolicyTool:
                 raise ToolError("deck_exhausted")
             hand.append(stock.pop())
             draws += 1
+
+
+class ArithmeticDealTool:
+    """Deal a solvable arithmetic hand without a gameplay engine."""
+    def __init__(self, ranks, suits, target, operations=("+", "-", "*", "/"), fractional=True, rank_values=None):
+        self.deck = DeckTool(ranks, suits)
+        self.target, self.operations, self.fractional = target, tuple(operations), fractional
+        self.rank_values = rank_values or {}
+
+    def deal(self, seed, cards_each=4):
+        import random
+        for attempt in range(64):
+            cards = self.deck.shuffled(f"{seed}:{attempt}")
+            hand, stock = cards[:cards_each], cards[cards_each:]
+            numbers = [self.rank_values.get(card.rank, card.value) for card in hand]
+            if solve(tuple(numbers), self.target, self.operations, self.fractional) is not None:
+                return {"hand": hand, "stock": stock, "numbers": numbers}
+        raise ToolError("no_solvable_deal")

@@ -97,7 +97,7 @@ class EngineAgent:
     def required_tools(rules: PlayableRule) -> set[str]:
         """Minimum capabilities needed by the deterministic runtime for a family."""
         return {
-            "arithmetic": {"deck", "arithmetic_solver"},
+            "arithmetic": {"deck", "arithmetic_deal", "arithmetic_solver", "state", "score_settle"},
             "blackjack": {"deck", "hand_rank", "state", "point_contest", "dealer_policy", "score_settle"},
             "shedding": {"deck", "draw_discard", "card_match", "turn_order"},
             "doudizhu": {"deck", "doudizhu_hand_rank", "climb_beats", "turn_order"},

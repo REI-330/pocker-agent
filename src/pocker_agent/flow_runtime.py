@@ -136,7 +136,10 @@ class FlowRuntime:
         return {"executor": "tool_flow", "rules": self.rules.model_dump(mode="json"),
                 "seed": self.seed, "tool_plan": self.tool_plan, "pc": self.pc, "started": self.started,
                 "context": encode(self.layer.context.state), "events": deepcopy(self.events),
-                "tools": {name: encode(vars(tool)) for name, tool in self.layer.tools.items()}}
+                # Flow tools are reconstructed from the validated ToolPlan;
+                # mutable game state lives in context, so nested helper tools
+                # (e.g. ArithmeticDealTool's DeckTool) never need serializing.
+                "tools": {name: {} for name in self.layer.tools}}
 
     @classmethod
     def restore(cls, rules, data):
@@ -146,8 +149,6 @@ class FlowRuntime:
             raise ToolError("flow_saved_node_missing")
         runtime.layer.context.state = decode(data["context"])
         runtime.layer.context.events = deepcopy(data["events"])
-        for name, values in data["tools"].items():
-            vars(runtime.layer.tools[name]).update(decode(values))
         return runtime
 
     def view(self):
