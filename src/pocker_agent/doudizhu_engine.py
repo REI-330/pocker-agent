@@ -40,6 +40,9 @@ class DoudizhuEngine:
         self._settlement_tool = default_registry().create("doudizhu_settle", **config)
         self._rank_tool = default_registry().create("doudizhu_hand_rank")
         self._climb_tool = default_registry().create("climb_beats")
+        deck_config = next((item.get("config", {}) for item in self.tool_plan.get("tools", [])
+                            if isinstance(item, dict) and item.get("name") == "deck"), {})
+        self._deck_tool = default_registry().create("deck", **deck_config)
         self.state = None
 
     def tool_call(self, tool, operation, **payload):
@@ -50,7 +53,7 @@ class DoudizhuEngine:
     def setup(self):
         if self.state is not None: raise RuntimeError("game_already_started")
         ranks = [*map(str, range(3, 11)), "J", "Q", "K", "A", "2"]
-        cards = DeckTool(ranks, ["S", "H", "D", "C"]).cards()
+        cards = self._deck_tool.cards()
         cards += [CardRef("BJ", "BJ", "", 15), CardRef("RJ", "RJ", "", 16)]
         import random
         random.Random(self.seed).shuffle(cards)
