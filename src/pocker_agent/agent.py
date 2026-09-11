@@ -127,7 +127,9 @@ class RuleAgent:
         if errors:
             return AgentTurn("error", "规则未通过执行校验，请修改。", errors=errors)
         try:
-            create_engine(rules, seed=7).setup()
+            # Validate the same declarative plan that production sessions use;
+            # never let the legacy family dispatcher certify a new game.
+            create_engine(rules, seed=7, tool_plan=plan_for_rules(rules)).setup()
         except (ValueError, RuntimeError) as error:
             return AgentTurn("error", "规则未通过启动检查。", errors=[str(error)])
         session.proposal = rules.model_dump(mode="json")
