@@ -95,7 +95,7 @@ class EngineAgent:
         """Minimum capabilities needed by the deterministic runtime for a family."""
         return {
             "arithmetic": {"deck", "arithmetic_solver"},
-            "blackjack": {"deck", "hand_rank"},
+            "blackjack": {"deck", "hand_rank", "state", "point_contest", "dealer_policy", "score_settle"},
             "shedding": {"deck", "draw_discard", "card_match", "turn_order"},
             "doudizhu": {"deck", "doudizhu_hand_rank", "climb_beats", "turn_order"},
             "holdem": {"deck", "betting_round", "phase_progress", "community_deal", "all_in", "showdown", "settle_pots"},

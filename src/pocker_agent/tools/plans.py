@@ -12,7 +12,32 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
     if kind == "blackjack":
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "hand_rank", "config": {"target": 21}},
-                          {"name": "condition", "config": {}}, {"name": "winner_resolve"}, {"name": "score_settle"}]
+                          {"name": "state"}, {"name": "point_contest"}, {"name": "dealer_policy"},
+                          {"name": "score_settle"}]
+        call = lambda tool, operation, args=None, result_key=None: {"tool": tool, "operation": operation,
+                                                                     "args": args or {}, **({"result_key": result_key} if result_key else {})}
+        update = lambda values: call("state", "update", {"state": "$state", "values": values})
+        base["flow"] = {
+            "entry": "deal", "initial": {"finished": False, "winners": [], "scores": [0, 0], "current_player": 0},
+            "nodes": {
+                "deal": {"kind": "call", "next": "init", "action": call("deck", "deal", {"seed": "$state.seed", "hands": 2, "cards_each": 2}, "deal")},
+                "init": {"kind": "call", "next": "wait", "action": update({"hands": "$state.deal.hands", "stock": "$state.deal.deck", "visible_counts": [2, 1], "phase": "play"})},
+                "wait": {"kind": "wait", "inputs": {"hit": "hit", "stand": "stand"}},
+                "hit": {"kind": "call", "next": "rank_hit", "action": call("deck", "draw", {"stock": "$state.stock", "hand": "$state.hands.0", "count": 1})},
+                "rank_hit": {"kind": "call", "next": "hit_branch", "action": call("hand_rank", "evaluate", {"cards": "$state.hands.0"}, "player_rank")},
+                "hit_branch": {"kind": "branch", "value": "$state.player_rank.bust", "cases": [{"value": True, "target": "bust_resolve"}], "next": "wait"},
+                "bust_resolve": {"kind": "call", "next": "bust_score", "action": call("point_contest", "resolve", {"totals": ["$state.player_rank.total", 0], "sizes": [3, 0], "target": 21, "first_bust_loses": True}, "winners")},
+                "bust_score": {"kind": "call", "next": "bust_finish", "action": call("score_settle", "call", {"scores": "$state.scores", "winners": "$state.winners", "points": 1}, "scores")},
+                "bust_finish": {"kind": "call", "next": "end", "action": update({"finished": True, "finish_reason": "bust", "phase": "settled", "winners": "$state.winners"})},
+                "stand": {"kind": "call", "next": "rank_stand", "action": call("hand_rank", "evaluate", {"cards": "$state.hands.0"}, "player_rank")},
+                "rank_stand": {"kind": "call", "next": "dealer_play", "action": call("dealer_policy", "play", {"stock": "$state.stock", "hand": "$state.hands.1", "hand_rank": "$tool.hand_rank", "stand_on": 17, "hits_soft": True}, "dealer_result")},
+                "dealer_play": {"kind": "call", "next": "rank_dealer", "action": call("hand_rank", "evaluate", {"cards": "$state.hands.1"}, "dealer_rank")},
+                "rank_dealer": {"kind": "call", "next": "contest", "action": call("point_contest", "resolve", {"totals": ["$state.player_rank.total", "$state.dealer_rank.total"], "sizes": [2, 2], "target": 21}, "winners")},
+                "contest": {"kind": "call", "next": "stand_finish", "action": call("score_settle", "call", {"scores": "$state.scores", "winners": "$state.winners", "points": 1}, "scores")},
+                "stand_finish": {"kind": "call", "next": "end", "action": update({"finished": True, "finish_reason": "stand", "phase": "settled", "visible_counts": [99, 99], "winners": "$state.winners"})},
+                "end": {"kind": "end"},
+            },
+        }
     elif kind == "holdem":
         players = [f"player-{i + 1}" for i in range(rules.players.max_players)]
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
