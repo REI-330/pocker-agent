@@ -116,7 +116,8 @@ class FlowRuntime:
             raise ToolError("illegal_action")
         backup, previous = deepcopy(self.layer), self.pc
         try:
-            self.layer.context.state["input"] = {**payload, "action": action, "card_index": card_index}
+            self.layer.context.state["input"] = {"expression": "", "declared_suit": "", "amount": None,
+                                                   **payload, "action": action, "card_index": card_index}
             self.pc = self.plan.flow.nodes[self.pc].inputs[action]
             self._advance()
         except Exception:

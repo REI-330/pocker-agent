@@ -69,7 +69,16 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "zones"}, {"name": "draw_discard"},
                           {"name": "card_match"}, {"name": "turn_order", "config": {"players": players}},
+                          {"name": "shedding_turn", "config": {"wild_rank": rules.wild_rank, "recycle": rules.recycle_discard}}, {"name": "state"},
                           {"name": "win_condition"}, {"name": "winner_resolve"}, {"name": "score_settle"}]
+        base["flow"] = {"entry": "deal", "initial": {"finished": False, "winners": [], "current_player": 0, "phase": "play"}, "nodes": {
+            "deal": {"kind": "call", "next": "init", "action": {"tool": "deck", "operation": "deal", "args": {"seed": "$state.seed", "hands": len(players), "cards_each": hand_size, "kitty": 1}, "result_key": "deal"}},
+            "init": {"kind": "call", "next": "wait", "action": {"tool": "state", "operation": "update", "args": {"state": "$state", "values": {"hands": "$state.deal.hands", "stock": "$state.deal.deck", "table": "$state.deal.kitty"}}}},
+            "wait": {"kind": "wait", "inputs": {"play": "turn", "draw": "turn", "pass": "turn"}},
+            "turn": {"kind": "call", "next": "branch", "action": {"tool": "shedding_turn", "operation": "play", "args": {"state": "$state", "action": "$state.input.action", "card_index": "$state.input.card_index", "declared_suit": "$state.input.declared_suit"}, "result_key": "turn_result"}},
+            "branch": {"kind": "branch", "value": "$state.finished", "cases": [{"value": True, "target": "end"}], "next": "wait"},
+            "end": {"kind": "end"},
+        }}
         base["actions"] = [{"tool": "deck", "operation": "deal",
                              "args": {"seed": 0, "hands": len(players), "cards_each": hand_size, "kitty": 1},
                              "result_key": "deal"},
