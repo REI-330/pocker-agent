@@ -159,7 +159,7 @@ class HoldemEngine:
         else:
             if len(self.state.board) < 5:
                 raise ValueError("showdown_requires_five_board_cards")
-            result = self._showdown(hands=self.state.hands, board=self.state.board, active=active)
+            result = self._showdown(hands=self.state.hands, board=self.state.board, eligible=active)
             self._tool_event("showdown", "call")
             ranks = result["ranks"]
             winners = list(result["winners"])
