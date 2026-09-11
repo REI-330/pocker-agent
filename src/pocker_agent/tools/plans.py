@@ -79,20 +79,7 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
                              "args": {"name": "table", "cards": "$state.deal.kitty", "visible_to": ["*"]}}]
     elif kind == "arithmetic":
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
-                          {"name": "arithmetic_solver", "config": {"target": rules.target, "operations": tuple(rules.operations), "fractional": rules.fractional_intermediates, "rank_values": rules.rank_values}}, {"name": "state"}]
-        call = lambda tool, operation, args=None, result_key=None: {"tool": tool, "operation": operation,
-                                                                     "args": args or {}, **({"result_key": result_key} if result_key else {})}
-        base["flow"] = {
-            "entry": "deal", "initial": {"finished": False, "winners": [], "scores": [0], "current_player": 0},
-            "nodes": {
-                "deal": {"kind": "call", "next": "init", "action": call("deck", "deal", {"seed": "$state.seed", "hands": 1, "cards_each": rules.card_count}, "deal")},
-                "init": {"kind": "call", "next": "wait", "action": call("state", "update", {"state": "$state", "values": {"table": "$state.deal.hands.0", "stock": "$state.deal.deck", "phase": "solve"}})},
-                "wait": {"kind": "wait", "inputs": {"solve": "solve"}},
-                "solve": {"kind": "call", "next": "finish", "action": call("arithmetic_solver", "validate", {"expression": "$state.input.expression", "numbers": "$state.table"}, "solution")},
-                "finish": {"kind": "call", "next": "end", "action": call("state", "update", {"state": "$state", "values": {"finished": True, "winners": [0], "phase": "finished"}})},
-                "end": {"kind": "end"},
-            },
-        }
+                          {"name": "arithmetic_solver", "config": {"target": rules.target}}]
     else:
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "turn_order", "config": {"players": [f"player-{i + 1}" for i in range(base["players"])]}}]
