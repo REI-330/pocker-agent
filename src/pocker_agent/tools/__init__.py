@@ -9,7 +9,7 @@ from .betting import PotTool
 from .plan import ToolInvocation, ToolAction, ToolPlan
 from .doudizhu import DoudizhuHand, beats, classify
 from .plans import plan_for_rules
-from .settlement import doudizhu_multiplier, doudizhu_scores
+from .settlement import doudizhu_multiplier, doudizhu_scores, resolve_winners, settle_scores
 from .zones import ZoneTool
 from .turns import TurnOrderTool
 from .matching import matches, follow_suit, group_by
@@ -19,5 +19,6 @@ from .draw_discard import DrawDiscardTool
 from .climbing import climb_beats
 from .triggers import TriggerTool
 from .holdem import BettingRoundTool, PhaseProgressTool, CommunityDealTool, AllInTool, showdown, settle_pots
+from .gameflow import WinConditionTool, SettlementTool
 
-__all__ = ["CardRef", "DeckTool", "ToolContext", "ToolError", "ToolResult", "ToolRegistry", "default_registry", "HandRankTool", "best_of", "five_card_rank", "PotTool", "ToolInvocation", "ToolAction", "ToolPlan", "DoudizhuHand", "beats", "classify", "plan_for_rules", "doudizhu_multiplier", "doudizhu_scores", "ZoneTool", "TurnOrderTool", "matches", "follow_suit", "group_by", "evaluate", "resolve_trick", "detect_meld", "DrawDiscardTool", "climb_beats", "TriggerTool", "BettingRoundTool", "PhaseProgressTool", "CommunityDealTool", "AllInTool", "showdown", "settle_pots"]
+__all__ = [name for name in globals() if not name.startswith("_")]

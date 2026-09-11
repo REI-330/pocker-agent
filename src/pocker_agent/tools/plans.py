@@ -12,7 +12,7 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
     if kind == "blackjack":
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "hand_rank", "config": {"target": 21}},
-                          {"name": "condition", "config": {}}]
+                          {"name": "condition", "config": {}}, {"name": "winner_resolve"}, {"name": "score_settle"}]
     elif kind == "holdem":
         players = [f"player-{i + 1}" for i in range(rules.players.max_players)]
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
@@ -37,14 +37,14 @@ def plan_for_rules(rules: Any) -> dict[str, Any]:
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "doudizhu_hand_rank", "config": {}},
                           {"name": "climb_beats", "config": {}},
-                          {"name": "turn_order", "config": {"players": [f"player-{i + 1}" for i in range(base["players"])]}}]
+                          {"name": "turn_order", "config": {"players": [f"player-{i + 1}" for i in range(base["players"])]}}, {"name": "winner_resolve"}, {"name": "score_settle"}]
     elif kind == "shedding":
         players = [f"player-{i + 1}" for i in range(base["players"])]
         hand_size = getattr(rules.players, "starting_hand_size", 5)
         base["tools"] = [{"name": "deck", "config": {"ranks": deck.ranks, "suits": deck.suits}},
                           {"name": "zones"}, {"name": "draw_discard"},
                           {"name": "card_match"}, {"name": "turn_order", "config": {"players": players}},
-                          {"name": "condition"}]
+                          {"name": "condition"}, {"name": "winner_resolve"}, {"name": "score_settle"}]
         base["actions"] = [{"tool": "deck", "operation": "deal",
                              "args": {"seed": 0, "hands": len(players), "cards_each": hand_size, "kitty": 1},
                              "result_key": "deal"},
