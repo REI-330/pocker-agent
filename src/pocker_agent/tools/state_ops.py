@@ -39,6 +39,8 @@ class LogicTool:
             return not args[0]
         if op == "count" and len(args) == 1:
             return len(args[0])
+        if op == "join":
+            return "".join(str(arg) for arg in args)
         raise ToolError("unknown_expression_operation")
 
 

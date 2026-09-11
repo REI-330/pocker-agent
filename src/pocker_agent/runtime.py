@@ -254,7 +254,8 @@ def snapshot(session):
                    if event.get("event") == "tool_called"]
     composition_events = list((session.composition or {}).get("events", []))
     if getattr(session.engine, "execution_mode", None) == "tool_flow":
-        result = {"session_id": session.id, "revision": session.revision, "seed": session.seed}
+        # The shuffle seed reconstructs hidden hands and later rounds.
+        result = {"session_id": session.id, "revision": session.revision}
         result.update(session.engine.view())
         result["tool_plan"] = session.tool_plan
         result["tool_plan_source"] = session.tool_plan_source

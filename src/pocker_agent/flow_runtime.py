@@ -163,6 +163,10 @@ class FlowRuntime:
             shown = hand if reveal or i == 0 else hand[:visible[i]]
             players.append({"id": f"player-{i + 1}", "hand": [c.as_dict() for c in shown],
                             "hidden_count": len(hand) - len(shown), "score": state.get("scores", [0] * self.plan.players)[i]})
+            if "totals" in state:
+                players[-1]["total"] = state["totals"][i] if len(shown) == len(hand) else None
+            if "labels" in state:
+                players[-1]["label"] = state["labels"][i]
         numbers = state.get("numbers")
         if numbers is None:
             rank_values = next((tool.get("config", {}).get("rank_values", {}) for tool in self.tool_plan.get("tools", [])
@@ -178,6 +182,7 @@ class FlowRuntime:
                 "human_player": "player-1", "finished": self.state.finished,
                 "winners": [f"player-{i + 1}" for i in state.get("winners", [])],
                 "finish_reason": state.get("finish_reason", ""), "legal_actions": self.legal_actions(),
-                "players": players, "table": [], "deck_remaining": len(state.get("stock", [])),
+                "players": players, "table": [card.as_dict() for card in state.get("table", [])],
+                "deck_remaining": len(state.get("stock", [])),
                 "feedback": state.get("feedback", ""), "numbers": numbers,
                 "target": state.get("target"), "events": self.events[-100:]}

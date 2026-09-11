@@ -45,7 +45,12 @@ class EngineAgent:
                        "turn_order.advance(steps)；card_match.call(card,top,active_suit,wild_ranks)。"
                        "禁止写 deck.create、deck.shuffle、deck.draw(deck=...) 或不存在的 operation。"
                        "只能使用这些工具：" + ", ".join(default_registry().names()) + "。规则："
-                       + ("Blackjack 必须额外返回完整 flow（entry、initial、nodes）；nodes 必须覆盖 call、wait、branch 和 end，不能省略 flow。" if getattr(rules, "kind", "") == "blackjack" else "")
+                       + ("Blackjack 必须返回完整 flow（entry、initial、nodes）。call 节点使用 action 和 next，"
+                          "branch 使用 value、cases:[{value,target}] 和默认 next；wait 使用 inputs:{动作:目标节点}；end 只可在 finished=true 后执行。"
+                          "用 logic.evaluate 的 all/any/eq/ge/lt/count/add/join 表达判断和轮次；用 deck.draw 表达庄家要牌循环。"
+                          "不要用专用 Engine 或省略 natural、软17规则、平局、max_rounds。参考组合供生成和修改："
+                          + json.dumps(plan_for_rules(rules), ensure_ascii=False)
+                          if getattr(rules, "kind", "") == "blackjack" else "")
                        + json.dumps(rules.model_dump(mode="json"), ensure_ascii=False)),
         }
         messages = [{"role": "system", "content": "你是游戏引擎 Agent，只能编排已注册的确定性 Tool，不得写代码。"}, prompt]
@@ -98,7 +103,7 @@ class EngineAgent:
         """Minimum capabilities needed by the deterministic runtime for a family."""
         return {
             "arithmetic": {"deck", "arithmetic_deal", "arithmetic_solver", "state", "score_settle"},
-            "blackjack": {"deck", "hand_rank", "state", "point_contest", "dealer_policy", "score_settle"},
+            "blackjack": {"deck", "hand_rank", "state", "logic", "point_contest", "score_settle", "winner_resolve"},
             "shedding": {"deck", "draw_discard", "card_match", "turn_order"},
             "doudizhu": {"deck", "doudizhu_hand_rank", "climb_beats", "turn_order"},
             "holdem": {"deck", "betting_round", "phase_progress", "community_deal", "all_in", "showdown", "settle_pots"},
