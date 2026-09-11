@@ -45,6 +45,7 @@ class EngineAgent:
                        "turn_order.advance(steps)；card_match.call(card,top,active_suit,wild_ranks)。"
                        "禁止写 deck.create、deck.shuffle、deck.draw(deck=...) 或不存在的 operation。"
                        "只能使用这些工具：" + ", ".join(default_registry().names()) + "。规则："
+                       + ("Blackjack 必须额外返回完整 flow（entry、initial、nodes）；nodes 必须覆盖 call、wait、branch 和 end，不能省略 flow。" if getattr(rules, "kind", "") == "blackjack" else "")
                        + json.dumps(rules.model_dump(mode="json"), ensure_ascii=False)),
         }
         messages = [{"role": "system", "content": "你是游戏引擎 Agent，只能编排已注册的确定性 Tool，不得写代码。"}, prompt]
@@ -69,6 +70,8 @@ class EngineAgent:
                     source = "engine_agent_normalized"
                 if plan.game_kind != getattr(rules, "kind", "legacy"):
                     raise ValueError("tool_plan_game_kind_mismatch")
+                if getattr(rules, "kind", "") == "blackjack" and plan.flow is None:
+                    raise ValueError("tool_plan_flow_required:blackjack")
                 known = set(default_registry().names())
                 if any(item.name not in known for item in plan.tools):
                     raise ValueError("tool_plan_unknown_tool")
